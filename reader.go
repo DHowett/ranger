@@ -1,3 +1,5 @@
+// Package partial implements an io.ReaderAt and io.ReadSeeker-compliant
+// implementation of a caching HTTP range request client.
 package partial
 
 import (
@@ -12,10 +14,20 @@ import (
 	"sync"
 )
 
+// DefaultBlockSize is the default size for the blocks that are downloaded from the server and cached.
 const DefaultBlockSize int = 128 * 1024
 
+// PartialHTTPReader is a caching range-requesting HTTP client that conforms to io.Reader and io.ReadSeeker
+//
+// PartialHTTPReader first makes a HEAD request and then between 0 and Length()/BlockSize GET requests, attempting
+// whenever possible to optimize for a lower number of requests.
+//
+// No network requests are made until the first I/O-related function call.
 type PartialHTTPReader struct {
-	URL       *url.URL
+	// request URL
+	URL *url.URL
+
+	// size of the blocks downloaded from the server and cached; lower values translate to lower memory usage, but typically require more requests
 	BlockSize int
 
 	length             int64
@@ -118,6 +130,9 @@ func (r *PartialHTTPReader) fetchRanges(ranges []requestByteRange) error {
 	return nil
 }
 
+// ReadAt reads len(p) bytes from the file pointed-to by the PartialHTTPReader's URL.
+// It returns the number of bytes read and the error, if any.
+// ReadAt always returns a non-nil error when n < len(b). At end of file, that error is io.EOF.
 func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
 	if !r.initialized {
 		err := r.init()
@@ -207,6 +222,7 @@ func (r *PartialHTTPReader) copyRangeToBuffer(p []byte, off int64) (int, error) 
 	return ncopied, err
 }
 
+// Length returns the length of the file pointed-to by the PartialHTTPReader's URL.
 func (r *PartialHTTPReader) Length() int64 {
 	if !r.initialized {
 		r.init()
@@ -214,6 +230,9 @@ func (r *PartialHTTPReader) Length() int64 {
 	return r.length
 }
 
+// Read reads len(p) bytes from the file pointed-to by the PartialHTTPReader's URL.
+// It returns the number of bytes read and the error, if any.
+// EOF is signaled by a zero count with err set to io.EOF.
 func (r *PartialHTTPReader) Read(p []byte) (int, error) {
 	if r.off == r.length {
 		return 0, io.EOF
@@ -224,6 +243,10 @@ func (r *PartialHTTPReader) Read(p []byte) (int, error) {
 	return nread, err
 }
 
+// Seek sets the offset for the next Read to offset, interpreted
+// according to whence: 0 means relative to the origin of the file, 1 means relative
+// to the current offset, and 2 means relative to the end. It returns the new offset
+// and an error, if any.
 func (r *PartialHTTPReader) Seek(off int64, whence int) (int64, error) {
 	if off < 0 {
 		return 0, errors.New("seek to negative offset!")
@@ -276,6 +299,9 @@ func (r *PartialHTTPReader) init() error {
 	return nil
 }
 
+// NewPartialHTTPReader returns a newly-initialized PartialHTTPReader
+// and performs a HEAD request to retrieve the required information from
+// the server. It returns the new reader and an error, if any.
 func NewPartialHTTPReader(u *url.URL) (*PartialHTTPReader, error) {
 	r := &PartialHTTPReader{
 		URL: u,
