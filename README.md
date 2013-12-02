@@ -20,7 +20,7 @@ HTTP partial document requests.
 	func main() {
 		url, _ := url.Parse("http://example.com/example.zip")
 
-		reader, _ := NewPartialHTTPReader(url)
+		reader, _ := NewRangeReader(url)
 		zipreader, _ := zip.NewReader(reader, reader.Length())
 
 		data := make([]byte, zipreader.File[0].UncompressedSize64)

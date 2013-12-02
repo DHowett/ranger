@@ -17,13 +17,13 @@ import (
 // DefaultBlockSize is the default size for the blocks that are downloaded from the server and cached.
 const DefaultBlockSize int = 128 * 1024
 
-// PartialHTTPReader is a caching range-requesting HTTP client that conforms to io.Reader and io.ReadSeeker
+// RangeReader is a caching range-requesting HTTP client that conforms to io.Reader and io.ReadSeeker
 //
-// PartialHTTPReader first makes a HEAD request and then between 0 and Length()/BlockSize GET requests, attempting
+// RangeReader first makes a HEAD request and then between 0 and Length()/BlockSize GET requests, attempting
 // whenever possible to optimize for a lower number of requests.
 //
 // No network requests are made until the first I/O-related function call.
-type PartialHTTPReader struct {
+type RangeReader struct {
 	// request URL
 	URL *url.URL
 
@@ -61,7 +61,7 @@ func blockRange(off int64, length int, blockSize int) (int, int) {
 
 }
 
-func (r *PartialHTTPReader) fetchRanges(ranges []requestByteRange) error {
+func (r *RangeReader) fetchRanges(ranges []requestByteRange) error {
 	if len(ranges) > 0 {
 		rs := make([]string, len(ranges))
 		for i, rng := range ranges {
@@ -130,10 +130,10 @@ func (r *PartialHTTPReader) fetchRanges(ranges []requestByteRange) error {
 	return nil
 }
 
-// ReadAt reads len(p) bytes from the file pointed-to by the PartialHTTPReader's URL.
+// ReadAt reads len(p) bytes from the file pointed-to by the reader's URL.
 // It returns the number of bytes read and the error, if any.
 // ReadAt always returns a non-nil error when n < len(b). At end of file, that error is io.EOF.
-func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
+func (r *RangeReader) ReadAt(p []byte, off int64) (int, error) {
 	if !r.initialized {
 		err := r.init()
 		if err != nil {
@@ -182,7 +182,7 @@ func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
 	return r.copyRangeToBuffer(p, off)
 }
 
-func (r *PartialHTTPReader) copyRangeToBuffer(p []byte, off int64) (int, error) {
+func (r *RangeReader) copyRangeToBuffer(p []byte, off int64) (int, error) {
 	remaining := len(p)
 	block := int(off / int64(r.BlockSize))
 	startOffset := off % int64(r.BlockSize)
@@ -222,18 +222,18 @@ func (r *PartialHTTPReader) copyRangeToBuffer(p []byte, off int64) (int, error) 
 	return ncopied, err
 }
 
-// Length returns the length of the file pointed-to by the PartialHTTPReader's URL.
-func (r *PartialHTTPReader) Length() int64 {
+// Length returns the length of the file pointed-to by the reader's URL.
+func (r *RangeReader) Length() int64 {
 	if !r.initialized {
 		r.init()
 	}
 	return r.length
 }
 
-// Read reads len(p) bytes from the file pointed-to by the PartialHTTPReader's URL.
+// Read reads len(p) bytes from the file pointed-to by the reader's URL.
 // It returns the number of bytes read and the error, if any.
 // EOF is signaled by a zero count with err set to io.EOF.
-func (r *PartialHTTPReader) Read(p []byte) (int, error) {
+func (r *RangeReader) Read(p []byte) (int, error) {
 	if r.off == r.length {
 		return 0, io.EOF
 	}
@@ -247,7 +247,7 @@ func (r *PartialHTTPReader) Read(p []byte) (int, error) {
 // according to whence: 0 means relative to the origin of the file, 1 means relative
 // to the current offset, and 2 means relative to the end. It returns the new offset
 // and an error, if any.
-func (r *PartialHTTPReader) Seek(off int64, whence int) (int64, error) {
+func (r *RangeReader) Seek(off int64, whence int) (int64, error) {
 	if off < 0 {
 		return 0, errors.New("seek to negative offset!")
 	}
@@ -274,7 +274,7 @@ func (r *PartialHTTPReader) Seek(off int64, whence int) (int64, error) {
 	return r.off, nil
 }
 
-func (r *PartialHTTPReader) init() error {
+func (r *RangeReader) init() error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -299,11 +299,11 @@ func (r *PartialHTTPReader) init() error {
 	return nil
 }
 
-// NewPartialHTTPReader returns a newly-initialized PartialHTTPReader
+// NewRangeReader returns a newly-initialized RangeReader
 // and performs a HEAD request to retrieve the required information from
 // the server. It returns the new reader and an error, if any.
-func NewPartialHTTPReader(u *url.URL) (*PartialHTTPReader, error) {
-	r := &PartialHTTPReader{
+func NewRangeReader(u *url.URL) (*RangeReader, error) {
+	r := &RangeReader{
 		URL: u,
 	}
 	err := r.init()
