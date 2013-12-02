@@ -37,6 +37,18 @@ func (r requestByteRange) String() string {
 	return fmt.Sprintf("%d-%d", r.start, r.end)
 }
 
+func blockRange(off int64, length int, blockSize int) (int, int) {
+	startBlock := int(off / int64(blockSize))
+	endBlock := int((off + int64(length)) / int64(blockSize))
+	endBlockOff := (off + int64(length)) % int64(blockSize)
+	nblocks := endBlock - startBlock
+	if endBlockOff > 0 {
+		nblocks++
+	}
+	return startBlock, nblocks
+
+}
+
 func (r *PartialHTTPReader) downloadRanges(ranges []requestByteRange) {
 	if len(ranges) > 0 {
 		rs := make([]string, len(ranges))
@@ -114,19 +126,12 @@ func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
 		return 0, errors.New("read beyond end of file")
 	}
 
-	block := int(off / int64(r.BlockSize))
-	endBlock := int((off + int64(l)) / int64(r.BlockSize))
-	endBlockOff := (off + int64(l)) % int64(r.BlockSize)
-	nblocks := endBlock - block
-	if endBlockOff > 0 {
-		nblocks++
-	}
-
+	startBlock, nblocks := blockRange(off, l, r.BlockSize)
 	ranges := make([]requestByteRange, nblocks)
 	nreq := 0
 	r.mutex.RLock()
 	for i := 0; i < nblocks; i++ {
-		bn := block + i
+		bn := startBlock + i
 		if _, ok := r.blocks[bn]; ok {
 			continue
 		}
