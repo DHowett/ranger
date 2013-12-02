@@ -36,13 +36,6 @@ func (r requestByteRange) String() string {
 	return fmt.Sprintf("%d-%d", r.start, r.end)
 }
 
-func (r *PartialHTTPReader) readRangeIntoBlock(rng requestByteRange, reader io.Reader) {
-	bn := rng.block
-	blocklen := (rng.end - rng.start) + 1
-	r.blocks[bn] = make([]byte, blocklen)
-	io.ReadFull(reader, r.blocks[bn])
-}
-
 func (r *PartialHTTPReader) downloadRanges(ranges []requestByteRange) {
 	if len(ranges) > 0 {
 		rs := make([]string, len(ranges))
@@ -69,7 +62,11 @@ func (r *PartialHTTPReader) downloadRanges(ranges []requestByteRange) {
 			i := 0
 			for {
 				if part, err := multipart.NextPart(); err == nil {
-					r.readRangeIntoBlock(ranges[i], part)
+					rng := ranges[i]
+					bn := rng.block
+					blocklen := (rng.end - rng.start) + 1
+					r.blocks[bn] = make([]byte, blocklen)
+					io.ReadFull(part, r.blocks[bn])
 					i++
 				} else {
 					break
@@ -78,7 +75,20 @@ func (r *PartialHTTPReader) downloadRanges(ranges []requestByteRange) {
 			r.mutex.Unlock()
 		} else {
 			r.mutex.Lock()
-			r.readRangeIntoBlock(ranges[0], resp.Body)
+			bn := 0
+			body := make([]byte, r.length)
+			io.ReadFull(resp.Body, body)
+			for i := r.length; i > 0; i -= int64(r.blockSize) {
+				bs := i
+				if bs > int64(r.blockSize) {
+					bs = int64(r.blockSize)
+				}
+
+				r.blocks[bn] = make([]byte, bs)
+				copy(r.blocks[bn], body[bn*r.blockSize:bn*r.blockSize+int(bs)])
+
+				bn++
+			}
 			r.mutex.Unlock()
 		}
 	}
