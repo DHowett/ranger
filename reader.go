@@ -76,7 +76,9 @@ func (r *HTTPPartialReaderAt) downloadRanges(ranges []requestByteRange) {
 			r.mutex.Unlock()
 		} else {
 			r.mutex.Lock()
-			r.readRangeIntoBlock(ranges[0], resp.Body)
+			for i := 0; i < int(resp.ContentLength)/r.blockSize; i++ {
+				r.readRangeIntoBlock(ranges[i], resp.Body)
+			}
 			r.mutex.Unlock()
 		}
 	}
