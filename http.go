@@ -100,20 +100,25 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 				// we received a contiguous section starting at the first requested block.
 				bn = ranges[0].Number
 			}
-			body := make([]byte, r.length)
+			body := make([]byte, resp.ContentLength)
 			io.ReadFull(resp.Body, body)
 			blox = blox[0:0]
-			for i := r.length; i > 0; i -= int64(r.blockSize) {
-				bs := i
-				if bs > int64(r.blockSize) {
-					bs = int64(r.blockSize)
+			remaining := resp.ContentLength
+			ncopied := int64(0)
+			for remaining > 0 {
+				bs := int64(r.blockSize)
+				if bs > remaining {
+					bs = remaining
 				}
 
 				blk := Block{bn, make([]byte, bs)}
-				copy(blk.Data, body[bn*r.blockSize:bn*r.blockSize+int(bs)])
+				bodySlice := body[ncopied : ncopied+bs]
+				copy(blk.Data, bodySlice)
 				blox = append(blox, blk)
 
 				bn++
+				ncopied += bs
+				remaining -= bs
 			}
 		}
 	}
