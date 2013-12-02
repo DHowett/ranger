@@ -49,7 +49,7 @@ func blockRange(off int64, length int, blockSize int) (int, int) {
 
 }
 
-func (r *PartialHTTPReader) fetchRanges(ranges []requestByteRange) {
+func (r *PartialHTTPReader) fetchRanges(ranges []requestByteRange) error {
 	if len(ranges) > 0 {
 		rs := make([]string, len(ranges))
 		for i, rng := range ranges {
@@ -69,9 +69,13 @@ func (r *PartialHTTPReader) fetchRanges(ranges []requestByteRange) {
 		typ, params, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		defer resp.Body.Close()
 
+		if resp.StatusCode >= 400 {
+			return errors.New("unexpected response from " + r.URL.Host)
+		}
+
+		r.mutex.Lock()
 		if typ == "multipart/byteranges" {
 			multipart := multipart.NewReader(resp.Body, params["boundary"])
-			r.mutex.Lock()
 			i := 0
 			for {
 				if part, err := multipart.NextPart(); err == nil {
@@ -82,12 +86,13 @@ func (r *PartialHTTPReader) fetchRanges(ranges []requestByteRange) {
 					io.ReadFull(part, r.blocks[bn])
 					i++
 				} else {
-					break
+					if err == io.EOF {
+						break
+					}
+					return err
 				}
 			}
-			r.mutex.Unlock()
 		} else {
-			r.mutex.Lock()
 			bn := 0
 			if resp.StatusCode == http.StatusPartialContent {
 				// If we've received 206 Partial Content but no multipart parts,
@@ -107,9 +112,10 @@ func (r *PartialHTTPReader) fetchRanges(ranges []requestByteRange) {
 
 				bn++
 			}
-			r.mutex.Unlock()
 		}
+		r.mutex.Unlock()
 	}
+	return nil
 }
 
 func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
@@ -153,7 +159,11 @@ func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
 	r.mutex.RUnlock()
 	ranges = ranges[:nreq]
 
-	r.fetchRanges(ranges)
+	err := r.fetchRanges(ranges)
+	if err != nil {
+		return 0, err
+	}
+
 	return r.copyRangeToBuffer(p, off)
 }
 
@@ -178,7 +188,7 @@ func (r *PartialHTTPReader) copyRangeToBuffer(p []byte, off int64) (int, error) 
 		}
 
 		if _, ok := r.blocks[block]; !ok {
-			return 0, errors.New("fu?")
+			return 0, errors.New("lies! we were told we had blocks to copy!")
 		}
 		copy(p[ncopied:ncopied+copylen], r.blocks[block][startOffset:])
 
