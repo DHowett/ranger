@@ -23,6 +23,8 @@ type PartialHTTPReader struct {
 	mutex              sync.RWMutex
 	initialized        bool
 	etag, lastModified string
+
+	off int64
 }
 
 type requestByteRange struct {
@@ -167,6 +169,39 @@ func (r *PartialHTTPReader) Length() int64 {
 		r.init()
 	}
 	return r.length
+}
+
+func (r *PartialHTTPReader) Read(p []byte) (int, error) {
+	nread, err := r.ReadAt(p, r.off)
+	r.off += int64(nread)
+	return nread, err
+}
+
+func (r *PartialHTTPReader) Seek(off int64, whence int) (int64, error) {
+	if off < 0 {
+		return 0, errors.New("seek to negative offset!")
+	}
+
+	switch whence {
+	case 0:
+		if off > r.Length() {
+			return 0, errors.New("seek beyond end of file")
+		}
+		r.off = off
+	case 1:
+		off = r.off + off
+		if off > r.Length() {
+			return 0, errors.New("seek beyond end of file")
+		}
+		r.off = off
+	case 2:
+		off = r.Length() - off
+		if off < 0 {
+			return 0, errors.New("seek beyond beginning of file")
+		}
+		r.off = off
+	}
+	return r.off, nil
 }
 
 func (r *PartialHTTPReader) init() error {
