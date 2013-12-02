@@ -22,6 +22,7 @@ type HTTPPartialReaderAt struct {
 	blocks             map[int][]byte
 	mutex              sync.RWMutex
 	initialized        bool
+	etag, lastModified string
 }
 
 type requestByteRange struct {
@@ -49,7 +50,12 @@ func (r *HTTPPartialReaderAt) downloadRanges(ranges []requestByteRange) {
 		rangeString := strings.Join(rs, ",")
 
 		req, _ := http.NewRequest("GET", r.URL.String(), nil)
-		req.Header["Range"] = []string{fmt.Sprintf("bytes=%s", rangeString)}
+		req.Header.Set("Range", fmt.Sprintf("bytes=%s", rangeString))
+		if r.etag != "" {
+			req.Header.Set("If-Range", r.etag)
+		} else if r.lastModified != "" {
+			req.Header.Set("If-Range", r.lastModified)
+		}
 
 		resp, _ := r.client.Do(req)
 		typ, params, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
@@ -180,6 +186,8 @@ func (r *HTTPPartialReaderAt) init() error {
 		return errors.New(r.URL.Host + " does not support byte-ranged requests.")
 	}
 
+	r.etag = resp.Header.Get("ETag")
+	r.lastModified = resp.Header.Get("Last-Modified")
 	r.Size = resp.ContentLength
 	return nil
 }
