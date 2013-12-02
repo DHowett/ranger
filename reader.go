@@ -199,7 +199,12 @@ func (r *PartialHTTPReader) copyRangeToBuffer(p []byte, off int64) (int, error) 
 		startOffset = 0
 	}
 
-	return ncopied, nil
+	var err error = nil
+	if off+int64(len(p)) == r.length {
+		err = io.EOF
+	}
+
+	return ncopied, err
 }
 
 func (r *PartialHTTPReader) Length() int64 {
@@ -210,6 +215,10 @@ func (r *PartialHTTPReader) Length() int64 {
 }
 
 func (r *PartialHTTPReader) Read(p []byte) (int, error) {
+	if r.off == r.length {
+		return 0, io.EOF
+	}
+
 	nread, err := r.ReadAt(p, r.off)
 	r.off += int64(nread)
 	return nread, err
