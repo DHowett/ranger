@@ -78,7 +78,10 @@ func (r *HTTPPartialReaderAt) downloadRanges(ranges []requestByteRange) {
 
 func (r *HTTPPartialReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	if !r.initialized {
-		r.init()
+		err := r.init()
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	l := len(p)
@@ -162,22 +165,32 @@ func (r *HTTPPartialReaderAt) init() error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
+	r.initialized = true
+	r.blocks = make(map[int][]byte)
+	if r.blockSize == 0 {
+		r.blockSize = DefaultBlockSize
+	}
+
 	resp, _ := http.Head(r.URL.String())
 	if resp.StatusCode == http.StatusNotFound {
 		return errors.New("404")
 	}
 
-	r.Size = resp.ContentLength
-	r.blocks = make(map[int][]byte)
-	r.initialized = true
-	if r.blockSize == 0 {
-		r.blockSize = DefaultBlockSize
+	if !strings.Contains(resp.Header.Get("Accept-Ranges"), "bytes") {
+		return errors.New(r.URL.Host + " does not support byte-ranged requests.")
 	}
+
+	r.Size = resp.ContentLength
 	return nil
 }
 
 func NewPartialReaderAt(u *url.URL) (*HTTPPartialReaderAt, error) {
-	return &HTTPPartialReaderAt{
+	r := &HTTPPartialReaderAt{
 		URL: u,
-	}, nil
+	}
+	err := r.init()
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }
