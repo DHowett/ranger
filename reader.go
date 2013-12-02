@@ -78,9 +78,7 @@ func (r *PartialHTTPReader) downloadRanges(ranges []requestByteRange) {
 			r.mutex.Unlock()
 		} else {
 			r.mutex.Lock()
-			for i := 0; i < int(resp.ContentLength)/r.blockSize; i++ {
-				r.readRangeIntoBlock(ranges[i], resp.Body)
-			}
+			r.readRangeIntoBlock(ranges[0], resp.Body)
 			r.mutex.Unlock()
 		}
 	}
