@@ -1,6 +1,6 @@
-# partial - io.ReaderAt with HTTP range requests!
+# ranger - io.ReaderAt with HTTP range requests!
 ## INSTALL
-	$ go get github.com/DHowett/partial
+	$ go get github.com/DHowett/ranger
 
 ## OVERVIEW
 Package partial provides an implementation of io.ReaderAt and io.ReadSeeker which makes
@@ -12,7 +12,7 @@ HTTP partial document requests.
 	import (
 		"archive/zip"
 		"io"
-		"github.com/DHowett/partial"
+		"github.com/DHowett/ranger"
 		"net/url"
 		"os"
 	)
@@ -20,7 +20,7 @@ HTTP partial document requests.
 	func main() {
 		url, _ := url.Parse("http://example.com/example.zip")
 
-		reader, _ := NewRangeReader(url)
+		reader, _ := ranger.NewReader(url)
 		zipreader, _ := zip.NewReader(reader, reader.Length())
 
 		data := make([]byte, zipreader.File[0].UncompressedSize64)
