@@ -15,9 +15,10 @@ import (
 const DefaultBlockSize int = 128 * 1024
 
 type PartialHTTPReader struct {
-	URL                *url.URL
+	URL       *url.URL
+	BlockSize int
+
 	length             int64
-	blockSize          int
 	client             http.Client
 	blocks             map[int][]byte
 	mutex              sync.RWMutex
@@ -78,14 +79,14 @@ func (r *PartialHTTPReader) downloadRanges(ranges []requestByteRange) {
 			bn := 0
 			body := make([]byte, r.length)
 			io.ReadFull(resp.Body, body)
-			for i := r.length; i > 0; i -= int64(r.blockSize) {
+			for i := r.length; i > 0; i -= int64(r.BlockSize) {
 				bs := i
-				if bs > int64(r.blockSize) {
-					bs = int64(r.blockSize)
+				if bs > int64(r.BlockSize) {
+					bs = int64(r.BlockSize)
 				}
 
 				r.blocks[bn] = make([]byte, bs)
-				copy(r.blocks[bn], body[bn*r.blockSize:bn*r.blockSize+int(bs)])
+				copy(r.blocks[bn], body[bn*r.BlockSize:bn*r.BlockSize+int(bs)])
 
 				bn++
 			}
@@ -108,9 +109,9 @@ func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
 		return 0, errors.New("read beyond end of file")
 	}
 
-	block := int(off / int64(r.blockSize))
-	endBlock := int((off + int64(l)) / int64(r.blockSize))
-	endBlockOff := (off + int64(l)) % int64(r.blockSize)
+	block := int(off / int64(r.BlockSize))
+	endBlock := int((off + int64(l)) / int64(r.BlockSize))
+	endBlockOff := (off + int64(l)) % int64(r.BlockSize)
 	nblocks := endBlock - block
 	if endBlockOff > 0 {
 		nblocks++
@@ -126,8 +127,8 @@ func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
 		}
 		ranges[i] = requestByteRange{
 			bn,
-			int64(bn * r.blockSize),
-			int64(((bn + 1) * r.blockSize) - 1),
+			int64(bn * r.BlockSize),
+			int64(((bn + 1) * r.BlockSize) - 1),
 		}
 		if ranges[i].end > r.length {
 			ranges[i].end = r.length
@@ -144,22 +145,22 @@ func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
 
 func (r *PartialHTTPReader) copyRangeToBuffer(p []byte, off int64) (int, error) {
 	remaining := len(p)
-	block := int(off / int64(r.blockSize))
-	startOffset := off % int64(r.blockSize)
+	block := int(off / int64(r.BlockSize))
+	startOffset := off % int64(r.BlockSize)
 	ncopied := 0
 
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
 
 	for remaining > 0 {
-		copylen := r.blockSize
+		copylen := r.BlockSize
 		if copylen > remaining {
 			copylen = remaining
 		}
 
 		// if we need to copy more bytes than exist in this block
-		if startOffset+int64(copylen) > int64(r.blockSize) {
-			copylen = int(int64(r.blockSize) - startOffset)
+		if startOffset+int64(copylen) > int64(r.BlockSize) {
+			copylen = int(int64(r.BlockSize) - startOffset)
 		}
 
 		if _, ok := r.blocks[block]; !ok {
@@ -223,8 +224,8 @@ func (r *PartialHTTPReader) init() error {
 
 	r.initialized = true
 	r.blocks = make(map[int][]byte)
-	if r.blockSize == 0 {
-		r.blockSize = DefaultBlockSize
+	if r.BlockSize == 0 {
+		r.BlockSize = DefaultBlockSize
 	}
 
 	resp, _ := http.Head(r.URL.String())
