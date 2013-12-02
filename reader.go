@@ -49,7 +49,7 @@ func blockRange(off int64, length int, blockSize int) (int, int) {
 
 }
 
-func (r *PartialHTTPReader) downloadRanges(ranges []requestByteRange) {
+func (r *PartialHTTPReader) fetchRanges(ranges []requestByteRange) {
 	if len(ranges) > 0 {
 		rs := make([]string, len(ranges))
 		for i, rng := range ranges {
@@ -149,7 +149,7 @@ func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
 	r.mutex.RUnlock()
 	ranges = ranges[:nreq]
 
-	r.downloadRanges(ranges)
+	r.fetchRanges(ranges)
 	return r.copyRangeToBuffer(p, off)
 }
 
