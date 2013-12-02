@@ -12,15 +12,16 @@ import (
 	"sync"
 )
 
-const blockSize int = 128 * 1024
+const DefaultBlockSize int = 128 * 1024
 
 type HTTPPartialReaderAt struct {
-	URL       *url.URL
-	Size      int64
-	blockSize int
-	client    *http.Client
-	blocks    map[int][]byte
-	mutex     *sync.RWMutex
+	URL                *url.URL
+	Size               int64
+	blockSize          int
+	client             http.Client
+	blocks             map[int][]byte
+	mutex              sync.RWMutex
+	initialized        bool
 }
 
 type requestByteRange struct {
@@ -76,6 +77,10 @@ func (r *HTTPPartialReaderAt) downloadRanges(ranges []requestByteRange) {
 }
 
 func (r *HTTPPartialReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if !r.initialized {
+		r.init()
+	}
+
 	l := len(p)
 	block := int(off / int64(r.blockSize))
 	endBlock := int((off + int64(l)) / int64(r.blockSize))
@@ -116,7 +121,10 @@ func (r *HTTPPartialReaderAt) copyRangeToBuffer(p []byte, off int64) (int, error
 	block := int(off / int64(r.blockSize))
 	startOffset := off % int64(r.blockSize)
 	ncopied := 0
+
 	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	for remaining > 0 {
 		copylen := r.blockSize
 		if copylen > remaining {
@@ -139,23 +147,37 @@ func (r *HTTPPartialReaderAt) copyRangeToBuffer(p []byte, off int64) (int, error
 		block++
 		startOffset = 0
 	}
-	r.mutex.RUnlock()
 
 	return ncopied, nil
 }
 
-func NewPartialReaderAt(u *url.URL) (*HTTPPartialReaderAt, error) {
-	resp, _ := http.Head(u.String())
+func (r *HTTPPartialReaderAt) Length() int64 {
+	if !r.initialized {
+		r.init()
+	}
+	return r.Size
+}
+
+func (r *HTTPPartialReaderAt) init() error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	resp, _ := http.Head(r.URL.String())
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, errors.New("404")
+		return errors.New("404")
 	}
 
+	r.Size = resp.ContentLength
+	r.blocks = make(map[int][]byte)
+	r.initialized = true
+	if r.blockSize == 0 {
+		r.blockSize = DefaultBlockSize
+	}
+	return nil
+}
+
+func NewPartialReaderAt(u *url.URL) (*HTTPPartialReaderAt, error) {
 	return &HTTPPartialReaderAt{
-		URL:       u,
-		Size:      resp.ContentLength,
-		blockSize: blockSize,
-		client:    &http.Client{},
-		blocks:    make(map[int][]byte),
-		mutex:     &sync.RWMutex{},
+		URL: u,
 	}, nil
 }
