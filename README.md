@@ -11,6 +11,7 @@ HTTP partial document requests.
 
 	import (
 		"archive/zip"
+		"io"
 		"github.com/DHowett/partial"
 		"net/url"
 		"os"
