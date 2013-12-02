@@ -77,6 +77,11 @@ func (r *PartialHTTPReader) downloadRanges(ranges []requestByteRange) {
 		} else {
 			r.mutex.Lock()
 			bn := 0
+			if resp.StatusCode == http.StatusPartialContent {
+				// If we've received 206 Partial Content but no multipart parts,
+				// we received a contiguous section starting at the first requested block.
+				bn = ranges[0].block
+			}
 			body := make([]byte, r.length)
 			io.ReadFull(resp.Body, body)
 			for i := r.length; i > 0; i -= int64(r.BlockSize) {
