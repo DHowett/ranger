@@ -14,7 +14,7 @@ import (
 
 const DefaultBlockSize int = 128 * 1024
 
-type HTTPPartialReaderAt struct {
+type PartialHTTPReader struct {
 	URL                *url.URL
 	length             int64
 	blockSize          int
@@ -34,14 +34,14 @@ func (r requestByteRange) String() string {
 	return fmt.Sprintf("%d-%d", r.start, r.end)
 }
 
-func (r *HTTPPartialReaderAt) readRangeIntoBlock(rng requestByteRange, reader io.Reader) {
+func (r *PartialHTTPReader) readRangeIntoBlock(rng requestByteRange, reader io.Reader) {
 	bn := rng.block
 	blocklen := (rng.end - rng.start) + 1
 	r.blocks[bn] = make([]byte, blocklen)
 	io.ReadFull(reader, r.blocks[bn])
 }
 
-func (r *HTTPPartialReaderAt) downloadRanges(ranges []requestByteRange) {
+func (r *PartialHTTPReader) downloadRanges(ranges []requestByteRange) {
 	if len(ranges) > 0 {
 		rs := make([]string, len(ranges))
 		for i, rng := range ranges {
@@ -84,7 +84,7 @@ func (r *HTTPPartialReaderAt) downloadRanges(ranges []requestByteRange) {
 	}
 }
 
-func (r *HTTPPartialReaderAt) ReadAt(p []byte, off int64) (int, error) {
+func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
 	if !r.initialized {
 		err := r.init()
 		if err != nil {
@@ -127,7 +127,7 @@ func (r *HTTPPartialReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	return r.copyRangeToBuffer(p, off)
 }
 
-func (r *HTTPPartialReaderAt) copyRangeToBuffer(p []byte, off int64) (int, error) {
+func (r *PartialHTTPReader) copyRangeToBuffer(p []byte, off int64) (int, error) {
 	remaining := len(p)
 	block := int(off / int64(r.blockSize))
 	startOffset := off % int64(r.blockSize)
@@ -162,14 +162,14 @@ func (r *HTTPPartialReaderAt) copyRangeToBuffer(p []byte, off int64) (int, error
 	return ncopied, nil
 }
 
-func (r *HTTPPartialReaderAt) Length() int64 {
+func (r *PartialHTTPReader) Length() int64 {
 	if !r.initialized {
 		r.init()
 	}
 	return r.length
 }
 
-func (r *HTTPPartialReaderAt) init() error {
+func (r *PartialHTTPReader) init() error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -194,8 +194,8 @@ func (r *HTTPPartialReaderAt) init() error {
 	return nil
 }
 
-func NewPartialReaderAt(u *url.URL) (*HTTPPartialReaderAt, error) {
-	r := &HTTPPartialReaderAt{
+func NewPartialHTTPReader(u *url.URL) (*PartialHTTPReader, error) {
+	r := &PartialHTTPReader{
 		URL: u,
 	}
 	err := r.init()
