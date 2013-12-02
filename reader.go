@@ -4,49 +4,51 @@ package ranger
 
 import (
 	"errors"
-	"fmt"
 	"io"
-	"mime"
-	"mime/multipart"
-	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 )
+
+// RangeFetcher is the interface that wraps the FetchBlocks method.
+//
+// FetchBlocks fetches the specified block ranges and returns any errors encountered in doing so.
+//
+// Length returns the length, in bytes, of the ranged-over source.
+//
+// Initialize, called once and passed the Reader's block size, performs any necessary setup tasks for the RangeFetcher
+type RangeFetcher interface {
+	FetchBlocks([]BlockByteRange) ([]Block, error)
+	Length() int64
+	Initialize(int) error
+}
 
 // DefaultBlockSize is the default size for the blocks that are downloaded from the server and cached.
 const DefaultBlockSize int = 128 * 1024
 
-// Reader is a caching range-requesting HTTP client that conforms to io.Reader and io.ReadSeeker
-//
-// Reader first makes a HEAD request and then between 0 and Length()/BlockSize GET requests, attempting
-// whenever possible to optimize for a lower number of requests.
-//
-// No network requests are made until the first I/O-related function call.
+// Reader is an io.ReaderAt and io.ReadSeeker backed by a partial block store.
 type Reader struct {
-	// request URL
-	URL *url.URL
+	// the range fetcher with which to download blocks
+	Fetcher RangeFetcher
 
-	// size of the blocks downloaded from the server and cached; lower values translate to lower memory usage, but typically require more requests
+	// size of the blocks fetched from the source and cached; lower values translate to lower memory usage, but typically require more requests
 	BlockSize int
 
-	length             int64
-	client             http.Client
-	blocks             map[int][]byte
-	mutex              sync.RWMutex
-	initialized        bool
-	etag, lastModified string
+	blocks      map[int][]byte
+	mutex       sync.RWMutex
+	initialized bool
 
 	off int64
 }
 
-type requestByteRange struct {
-	block      int
-	start, end int64
+// Block is represents a block by its number and its associated data.
+type Block struct {
+	Number int
+	Data   []byte
 }
 
-func (r requestByteRange) String() string {
-	return fmt.Sprintf("%d-%d", r.start, r.end)
+// BlockByteRange represents a not-yet-fetched block and the encompassed byte range.
+type BlockByteRange struct {
+	Number     int
+	Start, End int64
 }
 
 func blockRange(off int64, length int, blockSize int) (int, int) {
@@ -58,79 +60,9 @@ func blockRange(off int64, length int, blockSize int) (int, int) {
 		nblocks++
 	}
 	return startBlock, nblocks
-
 }
 
-func (r *Reader) fetchRanges(ranges []requestByteRange) error {
-	if len(ranges) > 0 {
-		rs := make([]string, len(ranges))
-		for i, rng := range ranges {
-			rs[i] = rng.String()
-		}
-		rangeString := strings.Join(rs, ",")
-
-		req, _ := http.NewRequest("GET", r.URL.String(), nil)
-		req.Header.Set("Range", fmt.Sprintf("bytes=%s", rangeString))
-		if r.etag != "" {
-			req.Header.Set("If-Range", r.etag)
-		} else if r.lastModified != "" {
-			req.Header.Set("If-Range", r.lastModified)
-		}
-
-		resp, _ := r.client.Do(req)
-		typ, params, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-		defer resp.Body.Close()
-
-		if resp.StatusCode >= 400 {
-			return errors.New("unexpected response from " + r.URL.Host)
-		}
-
-		r.mutex.Lock()
-		if typ == "multipart/byteranges" {
-			multipart := multipart.NewReader(resp.Body, params["boundary"])
-			i := 0
-			for {
-				if part, err := multipart.NextPart(); err == nil {
-					rng := ranges[i]
-					bn := rng.block
-					blocklen := (rng.end - rng.start) + 1
-					r.blocks[bn] = make([]byte, blocklen)
-					io.ReadFull(part, r.blocks[bn])
-					i++
-				} else {
-					if err == io.EOF {
-						break
-					}
-					return err
-				}
-			}
-		} else {
-			bn := 0
-			if resp.StatusCode == http.StatusPartialContent {
-				// If we've received 206 Partial Content but no multipart parts,
-				// we received a contiguous section starting at the first requested block.
-				bn = ranges[0].block
-			}
-			body := make([]byte, r.length)
-			io.ReadFull(resp.Body, body)
-			for i := r.length; i > 0; i -= int64(r.BlockSize) {
-				bs := i
-				if bs > int64(r.BlockSize) {
-					bs = int64(r.BlockSize)
-				}
-
-				r.blocks[bn] = make([]byte, bs)
-				copy(r.blocks[bn], body[bn*r.BlockSize:bn*r.BlockSize+int(bs)])
-
-				bn++
-			}
-		}
-		r.mutex.Unlock()
-	}
-	return nil
-}
-
-// ReadAt reads len(p) bytes from the file pointed-to by the reader's URL.
+// ReadAt reads len(p) bytes from the ranged-over source.
 // It returns the number of bytes read and the error, if any.
 // ReadAt always returns a non-nil error when n < len(b). At end of file, that error is io.EOF.
 func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
@@ -147,12 +79,12 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 		return 0, errors.New("read before beginning of file")
 	}
 
-	if off+int64(l) > r.length {
+	if off+int64(l) > r.Length() {
 		return 0, errors.New("read beyond end of file")
 	}
 
 	startBlock, nblocks := blockRange(off, l, r.BlockSize)
-	ranges := make([]requestByteRange, nblocks)
+	ranges := make([]BlockByteRange, nblocks)
 	nreq := 0
 	r.mutex.RLock()
 	for i := 0; i < nblocks; i++ {
@@ -160,13 +92,13 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 		if _, ok := r.blocks[bn]; ok {
 			continue
 		}
-		ranges[i] = requestByteRange{
+		ranges[i] = BlockByteRange{
 			bn,
 			int64(bn * r.BlockSize),
 			int64(((bn + 1) * r.BlockSize) - 1),
 		}
-		if ranges[i].end > r.length {
-			ranges[i].end = r.length
+		if ranges[i].End > r.Length() {
+			ranges[i].End = r.Length()
 		}
 
 		nreq++
@@ -174,10 +106,17 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 	r.mutex.RUnlock()
 	ranges = ranges[:nreq]
 
-	err := r.fetchRanges(ranges)
+	// Lock here so that we don't end up dispatching
+	// multiple requests for the same blocks.
+	r.mutex.Lock()
+	blox, err := r.Fetcher.FetchBlocks(ranges)
 	if err != nil {
 		return 0, err
 	}
+	for _, v := range blox {
+		r.blocks[v.Number] = v.Data
+	}
+	r.mutex.Unlock()
 
 	return r.copyRangeToBuffer(p, off)
 }
@@ -215,26 +154,26 @@ func (r *Reader) copyRangeToBuffer(p []byte, off int64) (int, error) {
 	}
 
 	var err error = nil
-	if off+int64(len(p)) == r.length {
+	if off+int64(len(p)) == r.Length() {
 		err = io.EOF
 	}
 
 	return ncopied, err
 }
 
-// Length returns the length of the file pointed-to by the reader's URL.
+// Length returns the length of the ranged-over source.
 func (r *Reader) Length() int64 {
 	if !r.initialized {
 		r.init()
 	}
-	return r.length
+	return r.Fetcher.Length()
 }
 
-// Read reads len(p) bytes from the file pointed-to by the reader's URL.
+// Read reads len(p) bytes from ranged-over source.
 // It returns the number of bytes read and the error, if any.
 // EOF is signaled by a zero count with err set to io.EOF.
 func (r *Reader) Read(p []byte) (int, error) {
-	if r.off == r.length {
+	if r.off == r.Length() {
 		return 0, io.EOF
 	}
 
@@ -284,27 +223,19 @@ func (r *Reader) init() error {
 		r.BlockSize = DefaultBlockSize
 	}
 
-	resp, _ := http.Head(r.URL.String())
-	if resp.StatusCode == http.StatusNotFound {
-		return errors.New("404")
+	err := r.Fetcher.Initialize(r.BlockSize)
+	if err != nil {
+		return err
 	}
-
-	if !strings.Contains(resp.Header.Get("Accept-Ranges"), "bytes") {
-		return errors.New(r.URL.Host + " does not support byte-ranged requests.")
-	}
-
-	r.etag = resp.Header.Get("ETag")
-	r.lastModified = resp.Header.Get("Last-Modified")
-	r.length = resp.ContentLength
 	return nil
 }
 
-// NewReader returns a newly-initialized Reader
-// and performs a HEAD request to retrieve the required information from
-// the server. It returns the new reader and an error, if any.
-func NewReader(u *url.URL) (*Reader, error) {
+// NewReader returns a newly-initialized Reader,
+// which also initializes its provided RangeFetcher.
+// It returns the new reader and an error, if any.
+func NewReader(fetcher RangeFetcher) (*Reader, error) {
 	r := &Reader{
-		URL: u,
+		Fetcher: fetcher,
 	}
 	err := r.init()
 	if err != nil {
