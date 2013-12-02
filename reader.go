@@ -16,7 +16,7 @@ const DefaultBlockSize int = 128 * 1024
 
 type HTTPPartialReaderAt struct {
 	URL                *url.URL
-	Size               int64
+	length             int64
 	blockSize          int
 	client             http.Client
 	blocks             map[int][]byte
@@ -112,8 +112,8 @@ func (r *HTTPPartialReaderAt) ReadAt(p []byte, off int64) (int, error) {
 			int64(bn * r.blockSize),
 			int64(((bn + 1) * r.blockSize) - 1),
 		}
-		if ranges[i].end > r.Size {
-			ranges[i].end = r.Size
+		if ranges[i].end > r.length {
+			ranges[i].end = r.length
 		}
 
 		nreq++
@@ -164,7 +164,7 @@ func (r *HTTPPartialReaderAt) Length() int64 {
 	if !r.initialized {
 		r.init()
 	}
-	return r.Size
+	return r.length
 }
 
 func (r *HTTPPartialReaderAt) init() error {
@@ -188,7 +188,7 @@ func (r *HTTPPartialReaderAt) init() error {
 
 	r.etag = resp.Header.Get("ETag")
 	r.lastModified = resp.Header.Get("Last-Modified")
-	r.Size = resp.ContentLength
+	r.length = resp.ContentLength
 	return nil
 }
 
