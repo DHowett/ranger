@@ -1,10 +1,11 @@
-# ranger - io.ReaderAt with HTTP range requests!
+# ranger - io.ReaderAt with range requests!
 ## INSTALL
 	$ go get github.com/DHowett/ranger
 
 ## OVERVIEW
-Package partial provides an implementation of io.ReaderAt and io.ReadSeeker which makes
-HTTP partial document requests.
+Package ranger provides an implementation of io.ReaderAt and io.ReadSeeker which makes
+partial document requests. Ranger ships with a range fetcher that operates on an HTTP resource
+using the Range: header.
 
 ## USE
 	package main
