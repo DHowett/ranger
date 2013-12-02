@@ -103,6 +103,11 @@ func (r *PartialHTTPReader) ReadAt(p []byte, off int64) (int, error) {
 	}
 
 	l := len(p)
+
+	if off+int64(l) > r.length {
+		return 0, errors.New("read beyond end of file")
+	}
+
 	block := int(off / int64(r.blockSize))
 	endBlock := int((off + int64(l)) / int64(r.blockSize))
 	endBlockOff := (off + int64(l)) % int64(r.blockSize)
