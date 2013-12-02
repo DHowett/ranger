@@ -159,11 +159,3 @@ func NewPartialReaderAt(u *url.URL) (*HTTPPartialReaderAt, error) {
 		mutex:     &sync.RWMutex{},
 	}, nil
 }
-
-type LoggingReaderAt struct {
-	io.ReaderAt
-}
-
-func (r *LoggingReaderAt) ReadAt(p []byte, off int64) (int, error) {
-	return r.ReaderAt.ReadAt(p, off)
-}
