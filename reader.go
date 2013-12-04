@@ -92,13 +92,13 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 		if _, ok := r.blocks[bn]; ok {
 			continue
 		}
-		ranges[i] = BlockByteRange{
+		ranges[nreq] = BlockByteRange{
 			bn,
 			int64(bn * r.BlockSize),
 			int64(((bn + 1) * r.BlockSize) - 1),
 		}
-		if ranges[i].End > r.Length() {
-			ranges[i].End = r.Length()
+		if ranges[nreq].End > r.Length() {
+			ranges[nreq].End = r.Length()
 		}
 
 		nreq++
