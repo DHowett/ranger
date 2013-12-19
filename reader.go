@@ -187,10 +187,6 @@ func (r *Reader) Read(p []byte) (int, error) {
 // to the current offset, and 2 means relative to the end. It returns the new offset
 // and an error, if any.
 func (r *Reader) Seek(off int64, whence int) (int64, error) {
-	if off < 0 {
-		return 0, errors.New("seek to negative offset!")
-	}
-
 	switch whence {
 	case 0:
 		if off > r.Length() {
@@ -204,7 +200,7 @@ func (r *Reader) Seek(off int64, whence int) (int64, error) {
 		}
 		r.off = off
 	case 2:
-		off = r.Length() - off
+		off = r.Length() + off
 		if off < 0 {
 			return 0, errors.New("seek beyond beginning of file")
 		}
