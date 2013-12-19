@@ -142,7 +142,7 @@ func (r *Reader) copyRangeToBuffer(p []byte, off int64) (int, error) {
 		}
 
 		if _, ok := r.blocks[block]; !ok {
-			return 0, errors.New("lies! we were told we had blocks to copy!")
+			return 0, errors.New("lies: we were told we had blocks to copy")
 		}
 		copy(p[ncopied:ncopied+copylen], r.blocks[block][startOffset:])
 
@@ -153,7 +153,7 @@ func (r *Reader) copyRangeToBuffer(p []byte, off int64) (int, error) {
 		startOffset = 0
 	}
 
-	var err error = nil
+	var err error
 	if off+int64(len(p)) == r.Length() {
 		err = io.EOF
 	}
