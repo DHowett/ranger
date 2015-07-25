@@ -80,7 +80,8 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 	}
 
 	if off+int64(l) > r.Length() {
-		return 0, errors.New("read beyond end of file")
+		l = int(r.Length() - off)
+		p = p[:l]
 	}
 
 	startBlock, nblocks := blockRange(off, l, r.BlockSize)
@@ -118,7 +119,11 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 	}
 	r.mutex.Unlock()
 
-	return r.copyRangeToBuffer(p, off)
+	n, err := r.copyRangeToBuffer(p, off)
+	if err == nil && off+int64(l) > r.Length() {
+		err = errors.New("read beyond end of file")
+	}
+	return n, err
 }
 
 func (r *Reader) copyRangeToBuffer(p []byte, off int64) (int, error) {
@@ -173,7 +178,11 @@ func (r *Reader) Length() int64 {
 // It returns the number of bytes read and the error, if any.
 // EOF is signaled by a zero count with err set to io.EOF.
 func (r *Reader) Read(p []byte) (int, error) {
-	if r.off == r.Length() {
+	if r.Length() - r.off < int64(len(p)) {
+		p = p[:r.Length() - r.off]
+	}
+
+	if len(p) == 0 {
 		return 0, io.EOF
 	}
 
