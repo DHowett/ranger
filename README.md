@@ -18,7 +18,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/cj123/ranger"
+	"github.com/DHowett/ranger"
 )
 
 func main() {
