@@ -19,7 +19,7 @@ import (
 // No network requests are made until the first I/O-related function call.
 type HTTPRanger struct {
 	URL                *url.URL
-	Client             http.Client
+	Client             *http.Client
 	etag, lastModified string
 	length             int64
 	blockSize          int
@@ -28,6 +28,11 @@ type HTTPRanger struct {
 // Initialize implements the Initialize function from the RangeFetcher interface.
 // It performs a HEAD request to retrieve the required information from the server.
 func (r *HTTPRanger) Initialize(bs int) error {
+
+	if r.Client == nil {
+		r.Client = &http.Client{}
+	}
+
 	resp, _ := r.Client.Head(r.URL.String())
 	if resp.StatusCode == http.StatusNotFound {
 		return errors.New("404")

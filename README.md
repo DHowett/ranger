@@ -27,7 +27,7 @@ func main() {
 	reader, _ := ranger.NewReader(
 		&ranger.HTTPRanger{
 			URL: url,
-			Client: http.Client{
+			Client: &http.Client{
 				Timeout: 5 * time.Second,
 			},
 		},
