@@ -9,35 +9,35 @@ using the Range: header.
 
 ## USE
 ```go
-	package main
+package main
 
-	import (
-		"archive/zip"
-		"io"
-		"net/http"
-		"net/url"
-		"time"
+import (
+	"archive/zip"
+	"io"
+	"net/http"
+	"net/url"
+	"time"
 
-		"github.com/cj123/ranger"
+	"github.com/cj123/ranger"
+)
+
+func main() {
+	url, _ := url.Parse("http://example.com/example.zip")
+
+	reader, _ := ranger.NewReader(
+		&ranger.HTTPRanger{
+			URL: url,
+			Client: http.Client{
+				Timeout: 5 * time.Second,
+			},
+		},
 	)
 
-	func main() {
-		url, _ := url.Parse("http://example.com/example.zip")
+	zipreader, _ := zip.NewReader(reader, reader.Length())
 
-		reader, _ := ranger.NewReader(
-			&ranger.HTTPRanger{
-				URL: url,
-				Client: http.Client{
-					Timeout: 5 * time.Second,
-				},
-			},
-		)
-
-		zipreader, _ := zip.NewReader(reader, reader.Length())
-
-		data := make([]byte, zipreader.File[0].UncompressedSize64)
-		rc, _ := zipreader.File[0].Open()
-		io.ReadFull(rc, data)
-		rc.Close()
-	}
+	data := make([]byte, zipreader.File[0].UncompressedSize64)
+	rc, _ := zipreader.File[0].Open()
+	io.ReadFull(rc, data)
+	rc.Close()
+}
 ```
