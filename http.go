@@ -33,7 +33,12 @@ func (r *HTTPRanger) Initialize(bs int) error {
 		r.Client = &http.Client{}
 	}
 
-	resp, _ := r.Client.Head(r.URL.String())
+	resp, err := r.Client.Head(r.URL.String())
+
+	if err != nil {
+		return err
+	}
+
 	if resp.StatusCode == http.StatusNotFound {
 		return errors.New("404")
 	}
@@ -64,7 +69,12 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 		}
 		rangeString := strings.Join(rs, ",")
 
-		req, _ := http.NewRequest("GET", r.URL.String(), nil)
+		req, err := http.NewRequest("GET", r.URL.String(), nil)
+
+		if err != nil {
+			return nil, err
+		}
+
 		req.Header.Set("Range", fmt.Sprintf("bytes=%s", rangeString))
 		if r.etag != "" {
 			req.Header.Set("If-Range", r.etag)
@@ -72,8 +82,18 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 			req.Header.Set("If-Range", r.lastModified)
 		}
 
-		resp, _ := r.Client.Do(req)
-		typ, params, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		resp, err := r.Client.Do(req)
+
+		if err != nil {
+			return nil, err
+		}
+
+		typ, params, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+
+		if err != nil {
+			return nil, err
+		}
+
 		defer resp.Body.Close()
 
 		if resp.StatusCode >= 400 {
