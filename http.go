@@ -28,7 +28,10 @@ type HTTPRanger struct {
 // Initialize implements the Initialize function from the RangeFetcher interface.
 // It performs a HEAD request to retrieve the required information from the server.
 func (r *HTTPRanger) Initialize(bs int) error {
-	resp, _ := r.client.Head(r.URL.String())
+	resp, err := r.client.Head(r.URL.String())
+	if err != nil {
+		return err
+	}
 	if resp.StatusCode == http.StatusNotFound {
 		return errors.New("404")
 	}
