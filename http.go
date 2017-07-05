@@ -19,16 +19,35 @@ import (
 // No network requests are made until the first I/O-related function call.
 type HTTPRanger struct {
 	URL                *url.URL
+	Client             HTTPClient
 	etag, lastModified string
 	length             int64
-	client             http.Client
 	blockSize          int
+}
+
+// HTTPClient is an interface describing net/http's Client.
+type HTTPClient interface {
+	Do(*http.Request) (*http.Response, error)
+	Get(string) (*http.Response, error)
+	Head(string) (*http.Response, error)
+	Post(string, string, io.Reader) (*http.Response, error)
+	PostForm(string, url.Values) (*http.Response, error)
 }
 
 // Initialize implements the Initialize function from the RangeFetcher interface.
 // It performs a HEAD request to retrieve the required information from the server.
 func (r *HTTPRanger) Initialize(bs int) error {
-	resp, _ := r.client.Head(r.URL.String())
+
+	if r.Client == nil {
+		r.Client = &http.Client{}
+	}
+
+	resp, err := r.Client.Head(r.URL.String())
+
+	if err != nil {
+		return err
+	}
+
 	if resp.StatusCode == http.StatusNotFound {
 		return errors.New("404")
 	}
@@ -59,7 +78,12 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 		}
 		rangeString := strings.Join(rs, ",")
 
-		req, _ := http.NewRequest("GET", r.URL.String(), nil)
+		req, err := http.NewRequest("GET", r.URL.String(), nil)
+
+		if err != nil {
+			return nil, err
+		}
+
 		req.Header.Set("Range", fmt.Sprintf("bytes=%s", rangeString))
 		if r.etag != "" {
 			req.Header.Set("If-Range", r.etag)
@@ -67,8 +91,18 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 			req.Header.Set("If-Range", r.lastModified)
 		}
 
-		resp, _ := r.client.Do(req)
-		typ, params, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		resp, err := r.Client.Do(req)
+
+		if err != nil {
+			return nil, err
+		}
+
+		typ, params, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+
+		if err != nil {
+			return nil, err
+		}
+
 		defer resp.Body.Close()
 
 		if resp.StatusCode >= 400 {

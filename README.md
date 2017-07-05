@@ -8,24 +8,36 @@ partial document requests. Ranger ships with a range fetcher that operates on an
 using the Range: header.
 
 ## USE
-	package main
+```go
+package main
 
-	import (
-		"archive/zip"
-		"io"
-		"github.com/DHowett/ranger"
-		"net/url"
-		"os"
+import (
+	"archive/zip"
+	"io"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/DHowett/ranger"
+)
+
+func main() {
+	url, _ := url.Parse("http://example.com/example.zip")
+
+	reader, _ := ranger.NewReader(
+		&ranger.HTTPRanger{
+			URL: url,
+			Client: &http.Client{
+				Timeout: 5 * time.Second,
+			},
+		},
 	)
 
-	func main() {
-		url, _ := url.Parse("http://example.com/example.zip")
+	zipreader, _ := zip.NewReader(reader, reader.Length())
 
-		reader, _ := ranger.NewReader(&ranger.HTTPRanger{URL: url})
-		zipreader, _ := zip.NewReader(reader, reader.Length())
-
-		data := make([]byte, zipreader.File[0].UncompressedSize64)
-		rc, _ := zipreader.File[0].Open()
-		io.ReadFull(rc, data)
-		rc.Close()
-	}
+	data := make([]byte, zipreader.File[0].UncompressedSize64)
+	rc, _ := zipreader.File[0].Open()
+	io.ReadFull(rc, data)
+	rc.Close()
+}
+```
