@@ -19,10 +19,19 @@ import (
 // No network requests are made until the first I/O-related function call.
 type HTTPRanger struct {
 	URL                *url.URL
-	Client             *http.Client
+	Client             HTTPClient
 	etag, lastModified string
 	length             int64
 	blockSize          int
+}
+
+// HTTPClient is an interface describing net/http's Client.
+type HTTPClient interface {
+	Do(*http.Request) (*http.Response, error)
+	Get(string) (*http.Response, error)
+	Head(string) (*http.Response, error)
+	Post(string, string, io.Reader) (*http.Response, error)
+	PostForm(string, url.Values) (*http.Response, error)
 }
 
 // Initialize implements the Initialize function from the RangeFetcher interface.
