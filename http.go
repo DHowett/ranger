@@ -11,6 +11,13 @@ import (
 	"strings"
 )
 
+// HTTPClient is an interface describing the methods required from net/http.Client
+type HTTPClient interface {
+	Do(*http.Request) (*http.Response, error)
+	Get(string) (*http.Response, error)
+	Head(string) (*http.Response, error)
+}
+
 // HTTPRanger is a RangeFetcher that uses the HTTP Range: header to fetch blocks.
 //
 // HTTPRanger first makes a HEAD request and then between 0 and Length()/BlockSize GET requests, attempting
@@ -18,10 +25,11 @@ import (
 //
 // No network requests are made until the first I/O-related function call.
 type HTTPRanger struct {
-	URL                *url.URL
+	URL    *url.URL
+	Client HTTPClient
+
 	etag, lastModified string
 	length             int64
-	client             http.Client
 	blockSize          int
 }
 
@@ -36,7 +44,11 @@ func statusIsAcceptable(status int) bool {
 // Initialize implements the Initialize function from the RangeFetcher interface.
 // It performs a HEAD request to retrieve the required information from the server.
 func (r *HTTPRanger) Initialize(bs int) error {
-	resp, err := r.client.Head(r.URL.String())
+	if r.Client == nil {
+		r.Client = &http.Client{}
+	}
+
+	resp, err := r.Client.Head(r.URL.String())
 	if err != nil {
 		return err
 	}
@@ -79,7 +91,7 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 			req.Header.Set("If-Range", r.lastModified)
 		}
 
-		resp, err := r.client.Do(req)
+		resp, err := r.Client.Do(req)
 		if err != nil {
 			return nil, err
 		}
