@@ -25,12 +25,24 @@ type HTTPRanger struct {
 	blockSize          int
 }
 
+func statusCodeError(status int) error {
+	return fmt.Errorf("unexpected response (status %d)", status)
+}
+
+func statusIsAcceptable(status int) bool {
+	return status >= 200 && status < 300
+}
+
 // Initialize implements the Initialize function from the RangeFetcher interface.
 // It performs a HEAD request to retrieve the required information from the server.
 func (r *HTTPRanger) Initialize(bs int) error {
-	resp, _ := r.client.Head(r.URL.String())
-	if resp.StatusCode == http.StatusNotFound {
-		return errors.New("404")
+	resp, err := r.client.Head(r.URL.String())
+	if err != nil {
+		return err
+	}
+
+	if !statusIsAcceptable(resp.StatusCode) {
+		return statusCodeError(resp.StatusCode)
 	}
 
 	if !strings.Contains(resp.Header.Get("Accept-Ranges"), "bytes") {
@@ -67,12 +79,27 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 			req.Header.Set("If-Range", r.lastModified)
 		}
 
-		resp, _ := r.client.Do(req)
-		typ, params, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		resp, err := r.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		switch resp.StatusCode {
+		case http.StatusPreconditionFailed:
+			return nil, errors.New("ranged request failed; document may have mutated")
+		case http.StatusNotFound:
+			return nil, errors.New("ranged request failed; document may have disappeared")
+		default:
+			if !statusIsAcceptable(resp.StatusCode) {
+				return nil, statusCodeError(resp.StatusCode)
+			}
+		}
+
 		defer resp.Body.Close()
 
-		if resp.StatusCode >= 400 {
-			return nil, errors.New("unexpected response from " + r.URL.Host)
+		typ, params, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		if err != nil {
+			return nil, err
 		}
 
 		if typ == "multipart/byteranges" {
