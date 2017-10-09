@@ -62,7 +62,11 @@ func (r *HTTPRanger) Initialize(bs int) error {
 	}
 
 	r.blockSize = bs
-	r.etag = resp.Header.Get("ETag")
+	etag := resp.Header.Get("ETag")
+	if len(etag) >= 2 && etag[0:1] != "W/" {
+		// ETag is present and not weak
+		r.etag = etag
+	}
 	r.lastModified = resp.Header.Get("Last-Modified")
 	r.length = resp.ContentLength
 	return nil
@@ -73,18 +77,27 @@ func (r *HTTPRanger) Length() int64 {
 	return r.length
 }
 
-// FetchBlocks requests blocks from the HTTP server.
-func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
-	blox := make([]Block, len(ranges))
+func generateByteRangeHeader(ranges []BlockByteRange) string {
 	if len(ranges) > 0 {
 		rs := make([]string, len(ranges))
 		for i, rng := range ranges {
 			rs[i] = fmt.Sprintf("%d-%d", rng.Start, rng.End)
 		}
-		rangeString := strings.Join(rs, ",")
+		return "bytes=" + strings.Join(rs, ",")
+	}
+	return ""
+}
 
-		req, _ := http.NewRequest("GET", r.URL.String(), nil)
-		req.Header.Set("Range", fmt.Sprintf("bytes=%s", rangeString))
+// FetchBlocks requests blocks from the HTTP server.
+func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
+	blox := make([]Block, len(ranges))
+	if len(ranges) > 0 {
+		req, err := http.NewRequest("GET", r.URL.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Range", generateByteRangeHeader(ranges))
 		if r.etag != "" {
 			req.Header.Set("If-Range", r.etag)
 		} else if r.lastModified != "" {
