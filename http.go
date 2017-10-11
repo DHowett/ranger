@@ -28,9 +28,9 @@ type HTTPRanger struct {
 	URL    *url.URL
 	Client HTTPClient
 
-	etag, lastModified string
-	length             int64
-	blockSize          int
+	validator string
+	length    int64
+	blockSize int
 }
 
 func statusCodeError(status int) error {
@@ -39,6 +39,20 @@ func statusCodeError(status int) error {
 
 func statusIsAcceptable(status int) bool {
 	return status >= 200 && status < 300
+}
+
+func validatorFromResponse(resp *http.Response) (string, error) {
+	etag := resp.Header.Get("ETag")
+	if etag != "" && etag[0] == '"' {
+		return etag, nil
+	}
+
+	modtime := resp.Header.Get("Last-Modified")
+	if modtime != "" {
+		return modtime, nil
+	}
+
+	return "", errors.New("no applicable validator in response")
 }
 
 // Initialize implements the Initialize function from the RangeFetcher interface.
@@ -58,16 +72,16 @@ func (r *HTTPRanger) Initialize(bs int) error {
 	}
 
 	if !strings.Contains(resp.Header.Get("Accept-Ranges"), "bytes") {
-		return errors.New(r.URL.Host + " does not support byte-ranged requests.")
+		return errors.New(r.URL.String() + " does not support byte-ranged requests.")
+	}
+
+	validator, err := validatorFromResponse(resp)
+	if err != nil {
+		return errors.New(r.URL.String() + " did not offer a strong-enough validator for subsequent requests")
 	}
 
 	r.blockSize = bs
-	etag := resp.Header.Get("ETag")
-	if len(etag) >= 2 && etag[0:1] != "W/" {
-		// ETag is present and not weak
-		r.etag = etag
-	}
-	r.lastModified = resp.Header.Get("Last-Modified")
+	r.validator = validator
 	r.length = resp.ContentLength
 	return nil
 }
@@ -77,7 +91,7 @@ func (r *HTTPRanger) Length() int64 {
 	return r.length
 }
 
-func generateByteRangeHeader(ranges []BlockByteRange) string {
+func makeByteRangeHeader(ranges []BlockByteRange) string {
 	if len(ranges) > 0 {
 		rs := make([]string, len(ranges))
 		for i, rng := range ranges {
@@ -97,12 +111,8 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 			return nil, err
 		}
 
-		req.Header.Set("Range", generateByteRangeHeader(ranges))
-		if r.etag != "" {
-			req.Header.Set("If-Range", r.etag)
-		} else if r.lastModified != "" {
-			req.Header.Set("If-Range", r.lastModified)
-		}
+		req.Header.Set("Range", makeByteRangeHeader(ranges))
+		req.Header.Set("If-Range", r.validator)
 
 		resp, err := r.Client.Do(req)
 		if err != nil {
@@ -111,9 +121,14 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 
 		switch resp.StatusCode {
 		case http.StatusPreconditionFailed:
-			return nil, errors.New("ranged request failed; document may have mutated")
+			return nil, ErrResourceChanged
 		case http.StatusNotFound:
-			return nil, errors.New("ranged request failed; document may have disappeared")
+			return nil, ErrResourceNotFound
+		case http.StatusOK:
+			newValidator, err := validatorFromResponse(resp)
+			if err != nil || newValidator != r.validator {
+				return nil, ErrResourceChanged
+			}
 		default:
 			if !statusIsAcceptable(resp.StatusCode) {
 				return nil, statusCodeError(resp.StatusCode)
