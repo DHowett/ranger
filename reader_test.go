@@ -160,6 +160,7 @@ func initTestServer() {
 	serveMux.Handle("/faulty", NewCutoverHandler(1, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "1024")
 		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Etag", "\"abcdef\"")
 		w.WriteHeader(http.StatusOK)
 	}), newStatusHandler(http.StatusBadRequest)))
 
@@ -188,7 +189,8 @@ func initTestServer() {
 		Size:     1024,
 	}, time.Now()))
 
-	serveMux.Handle("/blocks/content_changes", NewCutoverHandler(1, newContentHandler("content_changes", &blockIdentifyingReadSeeker{
+	// 2: one for HEAD, one for first GET
+	serveMux.Handle("/blocks/content_changes", NewCutoverHandler(2, newContentHandler("content_changes", &blockIdentifyingReadSeeker{
 		Sentinel: [3]byte{'C', 'H', '1'},
 		Count:    100,
 		Size:     512,
@@ -222,8 +224,7 @@ func TestSequentialRead(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/blocks/bl1")
 	hpr, err := newReaderBlockSize(url, 512)
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	for i, tc := range cases {
@@ -243,8 +244,7 @@ func TestSeekRead(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/blocks/bl1")
 	hpr, err := newReaderBlockSize(url, 512)
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	for _, tc := range cases {
@@ -279,8 +279,7 @@ func TestAsynchronousRead(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/blocks/bl3")
 	hpr, err := newReaderBlockSize(url, bsize)
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	wg := sync.WaitGroup{}
@@ -320,8 +319,7 @@ func TestOverlappingAsynchronousRead(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/blocks/bl2")
 	hpr, err := newReaderBlockSize(url, bsize)
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	wg := sync.WaitGroup{}
@@ -340,27 +338,23 @@ func TestZipFilePartialRead(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/b.zip")
 	hpr, err := newReaderBlockSize(url, 16)
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	length, err := hpr.Length()
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	zr, err := zip.NewReader(hpr, length)
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	bytes := make([]byte, zr.File[0].UncompressedSize64)
 	rc, err := zr.File[0].Open()
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	io.ReadFull(rc, bytes)
@@ -376,8 +370,9 @@ func Test404(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/404")
 	_, err := NewReader(&HTTPRanger{URL: url})
 	if err == nil {
-		t.Error("did not receive 404 error.")
-		return
+		t.Fail()
+	} else {
+		t.Log(err)
 	}
 }
 
@@ -385,8 +380,9 @@ func TestNoRanges(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/noranges")
 	_, err := NewReader(&HTTPRanger{URL: url})
 	if err == nil {
-		t.Error("did not receive range error.")
-		return
+		t.Fail()
+	} else {
+		t.Log(err)
 	}
 }
 
@@ -395,15 +391,15 @@ func TestLateFailure(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/faulty")
 	hpr, err := NewReader(&HTTPRanger{URL: url})
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	bytes := make([]byte, 1024)
 	n, err := hpr.ReadAt(bytes, 0)
 	if err == nil {
-		t.Error("Expected error, instead read", n, "bytes!")
-		return
+		t.Fatalf("read %d bytes", n)
+	} else {
+		t.Log(err)
 	}
 }
 
@@ -413,8 +409,7 @@ func TestLateInit(t *testing.T) {
 	hpr := &Reader{Fetcher: &HTTPRanger{URL: url}}
 	length, err := hpr.Length()
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 	t.Log("Late-Init Length:", length)
 
@@ -422,23 +417,9 @@ func TestLateInit(t *testing.T) {
 	bytes := make([]byte, 1024)
 	n, err := hpr2.ReadAt(bytes, 100)
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 	t.Log("Late-init read", n, "bytes")
-}
-
-// Fails on first call to ReadAt, but during Initialize
-func TestLateInitFailure(t *testing.T) {
-	url, _ := url.Parse(testServer.URL + "/faulty")
-	hpr := &Reader{Fetcher: &HTTPRanger{URL: url}}
-
-	bytes := make([]byte, 1024)
-	n, err := hpr.ReadAt(bytes, 100)
-	if err == nil {
-		t.Error("Expected error, instead read", n, "bytes!")
-		return
-	}
 }
 
 // Makes sure we get EOF when we hit the end of the file
@@ -446,8 +427,7 @@ func TestEOF(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/blocks/bl1")
 	hpr, err := NewReader(&HTTPRanger{URL: url})
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	bytes := make([]byte, 1024)
@@ -455,15 +435,15 @@ func TestEOF(t *testing.T) {
 	nbytes, err := hpr.Read(bytes)
 	t.Logf("Read %d bytes from end of file.", nbytes)
 	if err != io.EOF {
-		t.Error("Expected EOF, got", err)
-		return
+		t.Fatal("Expected EOF, got", err)
 	}
 
 	nbytes, err = hpr.Read(bytes)
-	t.Logf("Read %d bytes from end of file.", nbytes)
+	t.Logf("Read %d bytes past end of file.", nbytes)
 	if err != io.EOF {
 		t.Error("Expected EOF, got", err)
-		return
+	} else if nbytes != 0 {
+		t.Errorf("read %d bytes (expected 0 at eof!)", nbytes)
 	}
 }
 
@@ -471,58 +451,85 @@ func TestInvalidConditions(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/blocks/bl2")
 	hpr, err := NewReader(&HTTPRanger{URL: url})
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 	b := make([]byte, 1024)
 
 	t.Run("ReadAtNegative", func(t *testing.T) {
 		_, err = hpr.ReadAt(b, -1)
 		if err == nil {
-			t.Error("Expected an error (other than EOF) :P")
-			return
+			t.Fatal("Expected an error (other than EOF) :P")
+		} else {
+			t.Log(err)
 		}
 	})
 
 	t.Run("ReadAtEOF", func(t *testing.T) {
 		_, err = hpr.ReadAt(b, 1048576)
 		if err == nil {
-			t.Error("Expected an error (other than EOF) :P")
-			return
+			t.Fatal("Expected an error (other than EOF) :P")
+		} else {
+			t.Log(err)
 		}
 	})
 
 	t.Run("SeekToEOF", func(t *testing.T) {
 		_, err := hpr.Seek(1048576, 0)
 		if err == nil {
-			t.Error("Expected an error (other than EOF) :P")
-			return
+			t.Fatal("Expected an error (other than EOF) :P")
+		} else {
+			t.Log(err)
 		}
 	})
 	t.Run("SeekPastEOF", func(t *testing.T) {
 		_, err := hpr.Seek(10, 0)
 		if err != nil {
-			t.Error("Should have been able to seek to absolute off. 10:", err)
-			return
+			t.Fatal("Should have been able to seek to absolute off. 10:", err)
 		}
+
 		_, err = hpr.Seek(1048576, 1)
 		if err == nil {
-			t.Error("Expected an error")
-			return
+			t.Fatal("Expected an error")
+		} else {
+			t.Log(err)
 		}
 	})
 	t.Run("SeekFromEnd", func(t *testing.T) {
 		hpr.Seek(-1048576, 2)
 		if err == nil {
-			t.Error("Expected an error")
-			return
+			t.Fatal("Expected an error")
+		} else {
+			t.Log(err)
 		}
 	})
 	t.Run("SeekToNegative", func(t *testing.T) {
 		hpr.Seek(-100, 0)
 		if err == nil {
-			t.Error("Expected an error")
-			return
+			t.Fatal("Expected an error")
+		} else {
+			t.Log(err)
 		}
 	})
+}
+
+func TestFileMutatesBetweenReads(t *testing.T) {
+	url, _ := url.Parse(testServer.URL + "/blocks/content_changes")
+	hpr, err := newReaderBlockSize(url, 512)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	bytes := make([]byte, 512)
+	n, err := hpr.Read(bytes)
+	if err != nil || n != 512 {
+		t.Errorf("encountered error on first read (got %d bytes): %v", n, err)
+	}
+
+	n, err = hpr.Read(bytes)
+	if err == nil {
+		t.Error("expected to receive mutation error; got data back!")
+	} else {
+		t.Log(err)
+	}
 }
