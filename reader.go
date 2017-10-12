@@ -23,6 +23,7 @@ type Reader struct {
 	mutex       sync.RWMutex
 	initialized bool
 
+	len int64
 	off int64
 }
 
@@ -30,11 +31,9 @@ type Reader struct {
 // It returns the number of bytes read and the error, if any.
 // ReadAt always returns a non-nil error when n < len(b). At end of file, that error is io.EOF.
 func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
-	if !r.initialized {
-		err := r.init()
-		if err != nil {
-			return 0, err
-		}
+	err := r.init()
+	if err != nil {
+		return 0, err
 	}
 
 	l := len(p)
@@ -43,14 +42,16 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 		return 0, errors.New("read before beginning of file")
 	}
 
-	if off+int64(l) > r.Length() {
+	r.mutex.RLock()
+
+	if off+int64(l) > r.len {
+		r.mutex.RUnlock()
 		return 0, errors.New("read beyond end of file")
 	}
 
 	startBlock, nblocks := blockRange(off, l, r.BlockSize)
 	ranges := make([]BlockByteRange, nblocks)
 	nreq := 0
-	r.mutex.RLock()
 	for i := 0; i < nblocks; i++ {
 		bn := startBlock + i
 		if _, ok := r.blocks[bn]; ok {
@@ -61,14 +62,15 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 			int64(bn * r.BlockSize),
 			int64(((bn + 1) * r.BlockSize) - 1),
 		}
-		if ranges[nreq].End > r.Length() {
-			ranges[nreq].End = r.Length()
+		if ranges[nreq].End > r.len {
+			ranges[nreq].End = r.len
 		}
 
 		nreq++
 	}
-	r.mutex.RUnlock()
+
 	ranges = ranges[:nreq]
+	r.mutex.RUnlock()
 
 	// Lock here so that we don't end up dispatching
 	// multiple requests for the same blocks.
@@ -85,6 +87,7 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 	return r.copyRangeToBuffer(p, off)
 }
 
+// invariant: after init()
 func (r *Reader) copyRangeToBuffer(p []byte, off int64) (int, error) {
 	remaining := len(p)
 	block := int(off / int64(r.BlockSize))
@@ -118,7 +121,7 @@ func (r *Reader) copyRangeToBuffer(p []byte, off int64) (int, error) {
 	}
 
 	var err error
-	if off+int64(len(p)) == r.Length() {
+	if off+int64(len(p)) == r.len {
 		err = io.EOF
 	}
 
@@ -126,18 +129,24 @@ func (r *Reader) copyRangeToBuffer(p []byte, off int64) (int, error) {
 }
 
 // Length returns the length of the ranged-over source.
-func (r *Reader) Length() int64 {
-	if !r.initialized {
-		r.init()
+func (r *Reader) Length() (int64, error) {
+	err := r.init()
+	if err != nil {
+		return 0, err
 	}
-	return r.Fetcher.Length()
+	return r.len, nil
 }
 
 // Read reads len(p) bytes from ranged-over source.
 // It returns the number of bytes read and the error, if any.
 // EOF is signaled by a zero count with err set to io.EOF.
 func (r *Reader) Read(p []byte) (int, error) {
-	if r.off == r.Length() {
+	err := r.init()
+	if err != nil {
+		return 0, err
+	}
+
+	if r.off == r.len {
 		return 0, io.EOF
 	}
 
@@ -151,20 +160,28 @@ func (r *Reader) Read(p []byte) (int, error) {
 // to the current offset, and 2 means relative to the end. It returns the new offset
 // and an error, if any.
 func (r *Reader) Seek(off int64, whence int) (int64, error) {
+	err := r.init()
+	if err != nil {
+		return 0, err
+	}
+
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	switch whence {
 	case 0:
-		if off > r.Length() {
+		if off > r.len {
 			return 0, errors.New("seek beyond end of file")
 		}
 		r.off = off
 	case 1:
 		off = r.off + off
-		if off > r.Length() {
+		if off > r.len {
 			return 0, errors.New("seek beyond end of file")
 		}
 		r.off = off
 	case 2:
-		off = r.Length() + off
+		off = r.len + off
 		if off < 0 {
 			return 0, errors.New("seek beyond beginning of file")
 		}
@@ -174,18 +191,27 @@ func (r *Reader) Seek(off int64, whence int) (int64, error) {
 }
 
 func (r *Reader) init() error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.mutex.RLock()
+	if !r.initialized {
+		r.mutex.RUnlock()
+		r.mutex.Lock()
+		defer r.mutex.Unlock()
 
-	r.initialized = true
-	r.blocks = make(map[int][]byte)
-	if r.BlockSize == 0 {
-		r.BlockSize = DefaultBlockSize
-	}
+		r.blocks = make(map[int][]byte)
+		if r.BlockSize == 0 {
+			r.BlockSize = DefaultBlockSize
+		}
 
-	err := r.Fetcher.Initialize(r.BlockSize)
-	if err != nil {
-		return err
+		err := r.Fetcher.Initialize(r.BlockSize)
+		if err != nil {
+			return err
+		}
+
+		r.len = r.Fetcher.Length()
+
+		r.initialized = true
+	} else {
+		r.mutex.RUnlock()
 	}
 	return nil
 }
