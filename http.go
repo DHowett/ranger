@@ -119,6 +119,8 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 			return nil, err
 		}
 
+		defer resp.Body.Close()
+
 		switch resp.StatusCode {
 		case http.StatusPreconditionFailed:
 			return nil, ErrResourceChanged
@@ -134,8 +136,6 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 				return nil, statusCodeError(resp.StatusCode)
 			}
 		}
-
-		defer resp.Body.Close()
 
 		typ, params, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil {
