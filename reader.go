@@ -45,6 +45,10 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 	r.mutex.RLock()
 
 	if off+int64(l) > r.len {
+		l = int(r.len - off)
+	}
+
+	if off >= r.len {
 		r.mutex.RUnlock()
 		return 0, errors.New("read beyond end of file")
 	}
@@ -82,12 +86,13 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 	for _, v := range blox {
 		r.blocks[v.Number] = v.Data
 	}
+
 	r.mutex.Unlock()
 
-	return r.copyRangeToBuffer(p, off)
+	return r.copyRangeToBuffer(p[:l], off)
 }
 
-// invariant: after init()
+// invariant: after init(); p is appropriately sized
 func (r *Reader) copyRangeToBuffer(p []byte, off int64) (int, error) {
 	remaining := len(p)
 	block := int(off / int64(r.BlockSize))
