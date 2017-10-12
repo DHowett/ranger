@@ -99,7 +99,7 @@ func NewCutoverHandler(count int, first, second http.Handler) http.Handler {
 	}
 }
 
-func newContentHandler(name string, rs io.ReadSeeker, modtime time.Time) http.Handler {
+func newEtaggingContentHandler(name string, rs io.ReadSeeker, modtime time.Time) http.Handler {
 	h := md5.New()
 	rs.Seek(0, io.SeekStart)
 	io.Copy(h, rs)
@@ -126,7 +126,7 @@ func zipHandler() http.Handler {
 	}
 	z.Close()
 	br := bytes.NewReader(buf.Bytes())
-	return newContentHandler("b.zip", br, time.Now().Add(-1*time.Hour))
+	return newEtaggingContentHandler("b.zip", br, time.Now().Add(-1*time.Hour))
 }
 
 func newFileHandler(name string) http.Handler {
@@ -139,7 +139,7 @@ func newFileHandler(name string) http.Handler {
 		panic(err)
 	}
 
-	return newContentHandler(name, f, fi.ModTime())
+	return newEtaggingContentHandler(name, f, fi.ModTime())
 }
 
 func newStatusHandler(status int) http.Handler {
@@ -171,30 +171,36 @@ func initTestServer() {
 
 	serveMux.Handle("/b.zip", zipHandler())
 
-	serveMux.Handle("/blocks/bl1", newContentHandler("blocks", &blockIdentifyingReadSeeker{
+	bl1Content := &blockIdentifyingReadSeeker{
 		Sentinel: [3]byte{'B', 'L', '1'},
 		Count:    10,
 		Size:     512,
-	}, time.Now()))
+	}
+	bl1Time := time.Now().Add(-24 * time.Hour)
+	serveMux.Handle("/blocks/bl1_noetag", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "bl1", bl1Time, bl1Content)
+	}))
 
-	serveMux.Handle("/blocks/bl2", newContentHandler("blocks", &blockIdentifyingReadSeeker{
+	serveMux.Handle("/blocks/bl1", newEtaggingContentHandler("blocks", bl1Content, bl1Time))
+
+	serveMux.Handle("/blocks/bl2", newEtaggingContentHandler("blocks", &blockIdentifyingReadSeeker{
 		Sentinel: [3]byte{'B', 'L', '2'},
 		Count:    100,
 		Size:     512,
 	}, time.Now()))
 
-	serveMux.Handle("/blocks/bl3", newContentHandler("blocks", &blockIdentifyingReadSeeker{
+	serveMux.Handle("/blocks/bl3", newEtaggingContentHandler("blocks", &blockIdentifyingReadSeeker{
 		Sentinel: [3]byte{'B', 'L', '3'},
 		Count:    128 * 10,
 		Size:     1024,
 	}, time.Now()))
 
 	// 2: one for HEAD, one for first GET
-	serveMux.Handle("/blocks/content_changes", NewCutoverHandler(2, newContentHandler("content_changes", &blockIdentifyingReadSeeker{
+	serveMux.Handle("/blocks/content_changes", NewCutoverHandler(2, newEtaggingContentHandler("content_changes", &blockIdentifyingReadSeeker{
 		Sentinel: [3]byte{'C', 'H', '1'},
 		Count:    100,
 		Size:     512,
-	}, time.Now().Add(-2*time.Hour)), newContentHandler("content_changes", &blockIdentifyingReadSeeker{
+	}, time.Now().Add(-2*time.Hour)), newEtaggingContentHandler("content_changes", &blockIdentifyingReadSeeker{
 		Sentinel: [3]byte{'C', 'H', '2'},
 		Count:    100,
 		Size:     512,
@@ -216,20 +222,25 @@ func newReaderBlockSize(u *url.URL, bs int) (*Reader, error) {
 }
 
 func TestSequentialRead(t *testing.T) {
+	files := []string{"/blocks/bl1_noetag", "/blocks/bl1"}
 	cases := []TestCase{
 		&SequentialTestCase{1024, "ef6b552aa90cfff64e670088ef0c8535"},
 		&SequentialTestCase{1024, "8a4653b85c77f911e9c1f2fdb8d19e87"},
 	}
+	for _, file := range files {
+		t.Run(file, func(t *testing.T) {
 
-	url, _ := url.Parse(testServer.URL + "/blocks/bl1")
-	hpr, err := newReaderBlockSize(url, 512)
-	if err != nil {
-		t.Fatal(err)
-	}
+			url, _ := url.Parse(testServer.URL + file)
+			hpr, err := newReaderBlockSize(url, 512)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	for i, tc := range cases {
-		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			tc.RunTest(t, hpr)
+			for i, tc := range cases {
+				t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+					tc.RunTest(t, hpr)
+				})
+			}
 		})
 	}
 }
