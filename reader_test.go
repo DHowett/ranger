@@ -422,6 +422,21 @@ func TestLateInit(t *testing.T) {
 	t.Log("Late-init read", n, "bytes")
 }
 
+func TestReadAtEnd(t *testing.T) {
+	url, _ := url.Parse(testServer.URL + "/blocks/bl1")
+	hpr, err := NewReader(&HTTPRanger{URL: url})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bytes := make([]byte, 1024)
+	hpr.Seek(-512, 2)
+	nbytes, err := hpr.Read(bytes)
+	if err != io.EOF || nbytes != 512 {
+		t.Fatalf("Expected EOF and only 512 bytes; got %d with error %v", nbytes, err)
+	}
+}
+
 // Makes sure we get EOF when we hit the end of the file
 func TestEOF(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/blocks/bl1")
@@ -456,27 +471,36 @@ func TestInvalidConditions(t *testing.T) {
 	b := make([]byte, 1024)
 
 	t.Run("ReadAtNegative", func(t *testing.T) {
-		_, err = hpr.ReadAt(b, -1)
+		n, err := hpr.ReadAt(b, -1)
 		if err == nil {
-			t.Fatal("Expected an error (other than EOF) :P")
+			t.Fatalf("no error; read %d bytes", n)
 		} else {
 			t.Log(err)
 		}
 	})
 
 	t.Run("ReadAtEOF", func(t *testing.T) {
-		_, err = hpr.ReadAt(b, 1048576)
+		n, err := hpr.ReadAt(b, 1048576)
 		if err == nil {
-			t.Fatal("Expected an error (other than EOF) :P")
+			t.Fatalf("no error; read %d bytes", n)
+		} else {
+			t.Log(err)
+		}
+	})
+
+	t.Run("ReadPastEOF", func(t *testing.T) {
+		n, err := hpr.ReadAt(b, 1048576+1024)
+		if err == nil {
+			t.Fatalf("no error; read %d bytes", n)
 		} else {
 			t.Log(err)
 		}
 	})
 
 	t.Run("SeekToEOF", func(t *testing.T) {
-		_, err := hpr.Seek(1048576, 0)
+		offset, err := hpr.Seek(1048576, 0)
 		if err == nil {
-			t.Fatal("Expected an error (other than EOF) :P")
+			t.Fatalf("no error; sought to offset %d", offset)
 		} else {
 			t.Log(err)
 		}
@@ -487,25 +511,25 @@ func TestInvalidConditions(t *testing.T) {
 			t.Fatal("Should have been able to seek to absolute off. 10:", err)
 		}
 
-		_, err = hpr.Seek(1048576, 1)
+		offset, err := hpr.Seek(1048576, 1)
 		if err == nil {
-			t.Fatal("Expected an error")
+			t.Fatalf("no error; sought to offset %d", offset)
 		} else {
 			t.Log(err)
 		}
 	})
 	t.Run("SeekFromEnd", func(t *testing.T) {
-		hpr.Seek(-1048576, 2)
+		offset, err := hpr.Seek(-1048576, 2)
 		if err == nil {
-			t.Fatal("Expected an error")
+			t.Fatalf("no error; sought to offset %d", offset)
 		} else {
 			t.Log(err)
 		}
 	})
 	t.Run("SeekToNegative", func(t *testing.T) {
-		hpr.Seek(-100, 0)
+		offset, err := hpr.Seek(-100, 0)
 		if err == nil {
-			t.Fatal("Expected an error")
+			t.Fatalf("no error; sought to offset %d", offset)
 		} else {
 			t.Log(err)
 		}
