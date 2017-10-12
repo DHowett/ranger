@@ -19,12 +19,12 @@ type Reader struct {
 	// size of the blocks fetched from the source and cached; lower values translate to lower memory usage, but typically require more requests
 	BlockSize int
 
-	blocks      map[int][]byte
-	mutex       sync.RWMutex
-	initialized bool
+	once sync.Once
+	len  int64 // protected by once
 
-	len int64
-	off int64
+	mutex  sync.RWMutex
+	off    int64
+	blocks map[int][]byte
 }
 
 // ReadAt reads len(p) bytes from the ranged-over source.
@@ -190,30 +190,21 @@ func (r *Reader) Seek(off int64, whence int) (int64, error) {
 	return r.off, nil
 }
 
-func (r *Reader) init() error {
-	r.mutex.RLock()
-	if !r.initialized {
-		r.mutex.RUnlock()
-		r.mutex.Lock()
-		defer r.mutex.Unlock()
-
+func (r *Reader) init() (err error) {
+	r.once.Do(func() {
 		r.blocks = make(map[int][]byte)
 		if r.BlockSize == 0 {
 			r.BlockSize = DefaultBlockSize
 		}
 
-		err := r.Fetcher.Initialize(r.BlockSize)
+		err = r.Fetcher.Initialize(r.BlockSize)
 		if err != nil {
-			return err
+			return
 		}
 
 		r.len = r.Fetcher.Length()
-
-		r.initialized = true
-	} else {
-		r.mutex.RUnlock()
-	}
-	return nil
+	})
+	return
 }
 
 // NewReader returns a newly-initialized Reader,
