@@ -164,9 +164,22 @@ func initTestServer() {
 		w.WriteHeader(http.StatusOK)
 	}), newStatusHandler(http.StatusBadRequest)))
 
-	serveMux.Handle("/noranges", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	serveMux.Handle("/resource_disappears", NewCutoverHandler(1, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1024")
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Etag", "\"abcdef\"")
+		w.WriteHeader(http.StatusOK)
+	}), newStatusHandler(http.StatusNotFound)))
+
+	serveMux.Handle("/no_ranges", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Accept-Ranges", "")
 		w.WriteHeader(http.StatusOK)
+	}))
+
+	serveMux.Handle("/no_validator", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "Hello World!")
 	}))
 
 	serveMux.Handle("/b.zip", zipHandler())
@@ -388,10 +401,36 @@ func Test404(t *testing.T) {
 }
 
 func TestNoRanges(t *testing.T) {
-	url, _ := url.Parse(testServer.URL + "/noranges")
+	url, _ := url.Parse(testServer.URL + "/no_ranges")
 	_, err := NewReader(&HTTPRanger{URL: url})
 	if err == nil {
 		t.Fail()
+	} else {
+		t.Log(err)
+	}
+}
+
+func TestNoValidators(t *testing.T) {
+	url, _ := url.Parse(testServer.URL + "/no_validator")
+	_, err := NewReader(&HTTPRanger{URL: url})
+	if err == nil {
+		t.Fail()
+	} else {
+		t.Log(err)
+	}
+}
+
+func TestResourceDisappears(t *testing.T) {
+	url, _ := url.Parse(testServer.URL + "/resource_disappears")
+	hpr, err := NewReader(&HTTPRanger{URL: url})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bytes := make([]byte, 1024)
+	n, err := hpr.ReadAt(bytes, 0)
+	if err == nil {
+		t.Fatalf("read %d bytes", n)
 	} else {
 		t.Log(err)
 	}
