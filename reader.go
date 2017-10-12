@@ -42,16 +42,17 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 		return 0, errors.New("read before beginning of file")
 	}
 
-	r.mutex.RLock()
-
 	if off+int64(l) > r.len {
 		l = int(r.len - off)
 	}
 
 	if off >= r.len {
-		r.mutex.RUnlock()
 		return 0, errors.New("read beyond end of file")
 	}
+
+	// Lock here so that we don't end up dispatching
+	// multiple requests for the same blocks.
+	r.mutex.Lock()
 
 	startBlock, nblocks := blockRange(off, l, r.BlockSize)
 	ranges := make([]BlockByteRange, nblocks)
@@ -74,11 +75,7 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 	}
 
 	ranges = ranges[:nreq]
-	r.mutex.RUnlock()
 
-	// Lock here so that we don't end up dispatching
-	// multiple requests for the same blocks.
-	r.mutex.Lock()
 	blox, err := r.Fetcher.FetchBlocks(ranges)
 	if err != nil {
 		return 0, err
