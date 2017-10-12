@@ -171,24 +171,23 @@ func (r *Reader) Seek(off int64, whence int) (int64, error) {
 	defer r.mutex.Unlock()
 
 	switch whence {
-	case 0:
-		if off > r.len {
-			return 0, errors.New("seek beyond end of file")
-		}
+	case 0: // set
 		r.off = off
-	case 1:
+	case 1: // cur
 		off = r.off + off
-		if off > r.len {
-			return 0, errors.New("seek beyond end of file")
-		}
-		r.off = off
-	case 2:
+	case 2: // end
 		off = r.len + off
-		if off < 0 {
-			return 0, errors.New("seek beyond beginning of file")
-		}
-		r.off = off
 	}
+
+	if off > r.len {
+		return 0, errors.New("seek beyond end of file")
+	}
+
+	if off < 0 {
+		return 0, errors.New("seek before beginning of file")
+	}
+
+	r.off = off
 	return r.off, nil
 }
 
