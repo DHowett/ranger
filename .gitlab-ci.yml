@@ -1,0 +1,10 @@
+image: golang:alpine
+
+stages:
+    - test
+
+go-test-cover:
+    stage: test
+    script:
+        - go test -v -cover
+    coverage: '/^coverage: \d+\.\d+/'
