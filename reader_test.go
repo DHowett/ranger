@@ -60,11 +60,11 @@ func (b *blockIdentifyingReadSeeker) Read(p []byte) (n int, err error) {
 func (b *blockIdentifyingReadSeeker) Seek(offset int64, whence int) (int64, error) {
 	max := int64(b.Size * b.Count)
 	switch whence {
-	case io.SeekStart:
+	case os.SEEK_SET:
 		// nothing
-	case io.SeekCurrent:
+	case os.SEEK_CUR:
 		offset = b.off + offset
-	case io.SeekEnd:
+	case os.SEEK_END:
 		offset = max + offset
 	}
 	if offset >= 0 && offset <= int64(max) {
@@ -101,12 +101,12 @@ func NewCutoverHandler(count int, first, second http.Handler) http.Handler {
 
 func newEtaggingContentHandler(name string, rs io.ReadSeeker, modtime time.Time) http.Handler {
 	h := md5.New()
-	rs.Seek(0, io.SeekStart)
+	rs.Seek(0, os.SEEK_SET)
 	io.Copy(h, rs)
 	sum := make([]byte, 0, h.Size())
 	sum = h.Sum(sum)
 	etag := fmt.Sprintf("\"%02x\"", sum)
-	rs.Seek(0, io.SeekStart)
+	rs.Seek(0, os.SEEK_SET)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", etag)
@@ -241,7 +241,7 @@ func TestSequentialRead(t *testing.T) {
 		&SequentialTestCase{1024, "8a4653b85c77f911e9c1f2fdb8d19e87"},
 	}
 	for _, file := range files {
-		t.Run(file, func(t *testing.T) {
+		subtest(t, file, func(t *testing.T) {
 
 			url, _ := url.Parse(testServer.URL + file)
 			hpr, err := newReaderBlockSize(url, 512)
@@ -250,7 +250,7 @@ func TestSequentialRead(t *testing.T) {
 			}
 
 			for i, tc := range cases {
-				t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+				subtest(t, fmt.Sprintf("%d", i), func(t *testing.T) {
 					tc.RunTest(t, hpr)
 				})
 			}
@@ -272,7 +272,7 @@ func TestSeekRead(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.Name(), func(t *testing.T) {
+		subtest(t, tc.Name(), func(t *testing.T) {
 			tc.RunTest(t, hpr)
 		})
 	}
@@ -520,7 +520,7 @@ func TestInvalidConditions(t *testing.T) {
 	}
 	b := make([]byte, 1024)
 
-	t.Run("ReadAtNegative", func(t *testing.T) {
+	subtest(t, "ReadAtNegative", func(t *testing.T) {
 		n, err := hpr.ReadAt(b, -1)
 		if err == nil {
 			t.Fatalf("no error; read %d bytes", n)
@@ -529,7 +529,7 @@ func TestInvalidConditions(t *testing.T) {
 		}
 	})
 
-	t.Run("ReadAtEOF", func(t *testing.T) {
+	subtest(t, "ReadAtEOF", func(t *testing.T) {
 		n, err := hpr.ReadAt(b, 1048576)
 		if err == nil {
 			t.Fatalf("no error; read %d bytes", n)
@@ -538,7 +538,7 @@ func TestInvalidConditions(t *testing.T) {
 		}
 	})
 
-	t.Run("ReadPastEOF", func(t *testing.T) {
+	subtest(t, "ReadPastEOF", func(t *testing.T) {
 		n, err := hpr.ReadAt(b, 1048576+1024)
 		if err == nil {
 			t.Fatalf("no error; read %d bytes", n)
@@ -547,7 +547,7 @@ func TestInvalidConditions(t *testing.T) {
 		}
 	})
 
-	t.Run("SeekToEOF", func(t *testing.T) {
+	subtest(t, "SeekToEOF", func(t *testing.T) {
 		offset, err := hpr.Seek(1048576, 0)
 		if err == nil {
 			t.Fatalf("no error; sought to offset %d", offset)
@@ -555,7 +555,7 @@ func TestInvalidConditions(t *testing.T) {
 			t.Log(err)
 		}
 	})
-	t.Run("SeekPastEOF", func(t *testing.T) {
+	subtest(t, "SeekPastEOF", func(t *testing.T) {
 		_, err := hpr.Seek(10, 0)
 		if err != nil {
 			t.Fatal("Should have been able to seek to absolute off. 10:", err)
@@ -568,7 +568,7 @@ func TestInvalidConditions(t *testing.T) {
 			t.Log(err)
 		}
 	})
-	t.Run("SeekFromEnd", func(t *testing.T) {
+	subtest(t, "SeekFromEnd", func(t *testing.T) {
 		offset, err := hpr.Seek(-1048576, 2)
 		if err == nil {
 			t.Fatalf("no error; sought to offset %d", offset)
@@ -576,7 +576,7 @@ func TestInvalidConditions(t *testing.T) {
 			t.Log(err)
 		}
 	})
-	t.Run("SeekToNegative", func(t *testing.T) {
+	subtest(t, "SeekToNegative", func(t *testing.T) {
 		offset, err := hpr.Seek(-100, 0)
 		if err == nil {
 			t.Fatalf("no error; sought to offset %d", offset)
