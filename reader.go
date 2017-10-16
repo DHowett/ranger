@@ -76,6 +76,7 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 
 	blox, err := r.Fetcher.FetchBlocks(ranges)
 	if err != nil {
+		r.mutex.Unlock()
 		return 0, err
 	}
 	for _, v := range blox {
