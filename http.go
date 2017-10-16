@@ -11,6 +11,14 @@ import (
 	"strings"
 )
 
+const httpMethodGet = "GET"
+const httpHeaderAcceptRanges = "Accept-Ranges"
+const httpHeaderContentType = "Content-Type"
+const httpHeaderIfRange = "If-Range"
+const httpHeaderLastModified = "Last-Modified"
+const httpHeaderRange = "Range"
+const mimeMultipartByteranges = "multipart/byteranges"
+
 // HTTPClient is an interface describing the methods required from net/http.Client
 type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
@@ -47,7 +55,7 @@ func validatorFromResponse(resp *http.Response) (string, error) {
 		return etag, nil
 	}
 
-	modtime := resp.Header.Get("Last-Modified")
+	modtime := resp.Header.Get(httpHeaderLastModified)
 	if modtime != "" {
 		return modtime, nil
 	}
@@ -71,7 +79,7 @@ func (r *HTTPRanger) Initialize(bs int) error {
 		return statusCodeError(resp.StatusCode)
 	}
 
-	if !strings.Contains(resp.Header.Get("Accept-Ranges"), "bytes") {
+	if !strings.Contains(resp.Header.Get(httpHeaderAcceptRanges), "bytes") {
 		return errors.New(r.URL.String() + " does not support byte-ranged requests.")
 	}
 
@@ -127,13 +135,13 @@ func (r *HTTPRanger) FetchRanges(ranges []ByteRange) ([]Block, error) {
 		return nil, nil
 	}
 
-	req, err := http.NewRequest(http.MethodGet, r.URL.String(), nil)
+	req, err := http.NewRequest(httpMethodGet, r.URL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Range", makeByteRangeHeader(ranges))
-	req.Header.Set("If-Range", r.validator)
+	req.Header.Set(httpHeaderRange, makeByteRangeHeader(ranges))
+	req.Header.Set(httpHeaderIfRange, r.validator)
 
 	resp, err := r.Client.Do(req)
 	if err != nil {
@@ -147,7 +155,7 @@ func (r *HTTPRanger) FetchRanges(ranges []ByteRange) ([]Block, error) {
 		return nil, err
 	}
 
-	typ, params, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	typ, params, err := mime.ParseMediaType(resp.Header.Get(httpHeaderContentType))
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +166,7 @@ func (r *HTTPRanger) FetchRanges(ranges []ByteRange) ([]Block, error) {
 	}
 
 	var n int
-	if typ == "multipart/byteranges" {
+	if typ == mimeMultipartByteranges {
 		multipart := multipart.NewReader(resp.Body, params["boundary"])
 		n, err = r.fillBlocksFromMultipartReader(blox, multipart)
 	} else {
