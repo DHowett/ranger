@@ -155,7 +155,6 @@ func (r *HTTPRanger) FetchRanges(ranges []ByteRange) ([]Block, error) {
 			httpHeaderRange:   []string{makeByteRangeHeader(ranges)},
 			httpHeaderIfRange: []string{r.validator},
 		},
-		Body: http.NoBody,
 	}
 
 	resp, err := r.Client.Do(req)
