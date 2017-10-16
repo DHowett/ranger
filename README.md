@@ -1,7 +1,9 @@
 # ranger - io.ReaderAt with range requests! [![coverage report](https://gitlab.howett.net/DHowett/ranger/badges/master/coverage.svg)](https://gitlab.howett.net/DHowett/ranger/commits/master)
 
 ## INSTALL
-	$ go get github.com/DHowett/ranger
+```
+$ go get howett.net/ranger
+```
 
 ## OVERVIEW
 Package ranger provides an implementation of io.ReaderAt and io.ReadSeeker which makes
@@ -16,7 +18,7 @@ package main
 import (
 	"archive/zip"
 	"io"
-	"github.com/DHowett/ranger"
+	"howett.net/ranger"
 	"net/url"
 	"os"
 )
