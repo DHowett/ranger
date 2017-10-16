@@ -93,6 +93,7 @@ func (r *HTTPRanger) Length() int64 {
 
 func makeByteRangeHeader(ranges []ByteRange) string {
 	if len(ranges) > 0 {
+		ranges = coalesceAdjacentRanges(ranges)
 		rs := make([]string, len(ranges))
 		for i, rng := range ranges {
 			rs[i] = fmt.Sprintf("%d-%d", rng.Start, rng.End)

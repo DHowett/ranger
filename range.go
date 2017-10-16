@@ -35,3 +35,29 @@ func blockRange(off int64, length int, blockSize int) (int, int) {
 	}
 	return startBlock, nblocks
 }
+
+// coalesceAdjacentRanges coalesces ranges that are directly adjacent
+func coalesceAdjacentRanges(ranges []ByteRange) []ByteRange {
+	out := make([]ByteRange, 0, len(ranges))
+	ls, le := int64(-1), int64(-1)
+	for i := range ranges {
+		r := &ranges[i]
+		if ls != -1 && r.Start != le+1 {
+			// this range is different; vend the last one
+			out = append(out, ByteRange{ls, le})
+			ls = -1
+		}
+
+		if ls == -1 {
+			// not yet seen a range
+			ls, le = r.Start, r.End
+		} else if r.Start == le+1 {
+			// this range is contiguous with the last
+			le = r.End
+		}
+	}
+	if ls != -1 {
+		out = append(out, ByteRange{ls, le})
+	}
+	return out
+}
