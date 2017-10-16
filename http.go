@@ -183,9 +183,9 @@ func (r *HTTPRanger) FetchRanges(ranges []ByteRange) ([]Block, error) {
 	var n int
 	if typ == mimeMultipartByteranges {
 		multipart := multipart.NewReader(resp.Body, params["boundary"])
-		n, err = r.fillBlocksFromMultipartReader(blox, multipart)
+		n, err = fillBlocksFromMultipartReader(blox, multipart)
 	} else {
-		n, err = r.fillBlocksFromContiguousReader(blox, resp.Body)
+		n, err = fillBlocksFromContiguousReader(blox, resp.Body)
 	}
 
 	if err != nil {
@@ -199,7 +199,7 @@ func (r *HTTPRanger) FetchRanges(ranges []ByteRange) ([]Block, error) {
 	return blox, nil
 }
 
-func (r *HTTPRanger) fillBlocksFromMultipartReader(blox []Block, mp *multipart.Reader) (c int, err error) {
+func fillBlocksFromMultipartReader(blox []Block, mp *multipart.Reader) (c int, err error) {
 	for {
 		var p *multipart.Part
 		p, err = mp.NextPart()
@@ -208,7 +208,7 @@ func (r *HTTPRanger) fillBlocksFromMultipartReader(blox []Block, mp *multipart.R
 		}
 
 		var n int
-		n, err = r.fillBlocksFromContiguousReader(blox[c:], p)
+		n, err = fillBlocksFromContiguousReader(blox[c:], p)
 		if err != nil {
 			break
 		}
@@ -237,7 +237,7 @@ func readUntilErr(r io.Reader, p []byte) (c int, err error) {
 	return
 }
 
-func (hr *HTTPRanger) fillBlocksFromContiguousReader(blox []Block, r io.Reader) (c int, err error) {
+func fillBlocksFromContiguousReader(blox []Block, r io.Reader) (c int, err error) {
 	for i := range blox {
 		block := &blox[i]
 		l := block.Length
