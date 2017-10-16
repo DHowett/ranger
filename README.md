@@ -25,7 +25,8 @@ func main() {
 	url, _ := url.Parse("http://example.com/example.zip")
 
 	reader, _ := ranger.NewReader(&ranger.HTTPRanger{URL: url})
-	zipreader, _ := zip.NewReader(reader, reader.Length())
+	length, _ := reader.Length()
+	zipreader, _ := zip.NewReader(reader, length)
 
 	data := make([]byte, zipreader.File[0].UncompressedSize64)
 	rc, _ := zipreader.File[0].Open()

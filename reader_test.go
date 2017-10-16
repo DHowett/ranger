@@ -607,3 +607,37 @@ func TestFileMutatesBetweenReads(t *testing.T) {
 		t.Log(err)
 	}
 }
+
+func ExampleReader() {
+	url, _ := url.Parse(testServer.URL + "/b.zip")
+
+	reader, _ := NewReader(&HTTPRanger{URL: url})
+	length, _ := reader.Length()
+	zipreader, _ := zip.NewReader(reader, length)
+
+	for i, v := range zipreader.File {
+		fmt.Printf("[%d]: %s (%d bytes)\n", i, v.Name, v.UncompressedSize64)
+	}
+
+	data := make([]byte, 16)
+
+	rc, _ := zipreader.File[0].Open()
+	defer rc.Close()
+
+	io.ReadFull(rc, data)
+
+	fmt.Printf("Data from f00: `%s`\n", string(data))
+
+	// Output:
+	// [0]: f00 (640 bytes)
+	// [1]: f01 (640 bytes)
+	// [2]: f02 (640 bytes)
+	// [3]: f03 (640 bytes)
+	// [4]: f04 (640 bytes)
+	// [5]: f05 (640 bytes)
+	// [6]: f06 (640 bytes)
+	// [7]: f07 (640 bytes)
+	// [8]: f08 (640 bytes)
+	// [9]: f09 (640 bytes)
+	// Data from f00: `f0000000000BEGIN`
+}
