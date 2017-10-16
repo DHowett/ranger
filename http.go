@@ -148,20 +148,22 @@ func (r *HTTPRanger) FetchRanges(ranges []ByteRange) ([]Block, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest(httpMethodGet, r.URL.String(), nil)
-	if err != nil {
-		return nil, err
+	req := &http.Request{
+		Method: httpMethodGet,
+		URL:    r.URL,
+		Header: http.Header{
+			httpHeaderRange:   []string{makeByteRangeHeader(ranges)},
+			httpHeaderIfRange: []string{r.validator},
+		},
+		Body: http.NoBody,
 	}
-
-	req.Header.Set(httpHeaderRange, makeByteRangeHeader(ranges))
-	req.Header.Set(httpHeaderIfRange, r.validator)
 
 	resp, err := r.Client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	err = r.validateResponse(resp)
 	if err != nil {
