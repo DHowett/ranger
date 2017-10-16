@@ -16,6 +16,7 @@ type RangeFetcher interface {
 // Block is represents a block by its number and its associated data.
 type Block struct {
 	Number int
+	Length int64
 	Data   []byte
 }
 

@@ -102,92 +102,141 @@ func makeByteRangeHeader(ranges []BlockByteRange) string {
 	return ""
 }
 
+func (r *HTTPRanger) validateResponse(resp *http.Response) error {
+	switch resp.StatusCode {
+	case http.StatusPreconditionFailed:
+		return ErrResourceChanged
+	case http.StatusNotFound:
+		return ErrResourceNotFound
+	}
+
+	if !statusIsAcceptable(resp.StatusCode) {
+		return statusCodeError(resp.StatusCode)
+	}
+	newValidator, err := validatorFromResponse(resp)
+	if err != nil || newValidator != r.validator {
+		return ErrResourceChanged
+	}
+	return nil
+}
+
 // FetchBlocks requests blocks from the HTTP server.
 func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
+	if len(ranges) == 0 {
+		return nil, nil
+	}
+
+	req, err := http.NewRequest(http.MethodGet, r.URL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Range", makeByteRangeHeader(ranges))
+	req.Header.Set("If-Range", r.validator)
+
+	resp, err := r.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	err = r.validateResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	typ, params, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, err
+	}
+
 	blox := make([]Block, len(ranges))
-	if len(ranges) > 0 {
-		req, err := http.NewRequest("GET", r.URL.String(), nil)
+	for i, v := range ranges {
+		blox[i].Number = v.Number
+		blox[i].Length = v.End - v.Start + 1
+	}
+
+	var n int
+	if typ == "multipart/byteranges" {
+		multipart := multipart.NewReader(resp.Body, params["boundary"])
+		n, err = r.fillBlocksFromMultipartReader(blox, multipart)
+	} else {
+		n, err = r.fillBlocksFromContiguousReader(blox, resp.Body)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if n != len(blox) {
+		return nil, fmt.Errorf("http: expected to get %d content blocks back, but only got %d", len(blox), n)
+	}
+
+	return blox, nil
+}
+
+func (r *HTTPRanger) fillBlocksFromMultipartReader(blox []Block, mp *multipart.Reader) (c int, err error) {
+	for {
+		var p *multipart.Part
+		p, err = mp.NextPart()
 		if err != nil {
-			return nil, err
+			break
 		}
 
-		req.Header.Set("Range", makeByteRangeHeader(ranges))
-		req.Header.Set("If-Range", r.validator)
-
-		resp, err := r.Client.Do(req)
+		var n int
+		n, err = r.fillBlocksFromContiguousReader(blox[c:], p)
 		if err != nil {
-			return nil, err
+			break
 		}
 
-		defer resp.Body.Close()
+		c += n
+	}
 
-		switch resp.StatusCode {
-		case http.StatusPreconditionFailed:
-			return nil, ErrResourceChanged
-		case http.StatusNotFound:
-			return nil, ErrResourceNotFound
-		case http.StatusOK:
-			newValidator, err := validatorFromResponse(resp)
-			if err != nil || newValidator != r.validator {
-				return nil, ErrResourceChanged
-			}
-		default:
-			if !statusIsAcceptable(resp.StatusCode) {
-				return nil, statusCodeError(resp.StatusCode)
-			}
-		}
+	// EOFs bubble up as the number of blocks read being short, so we'll
+	// never raise one from here.
+	if err == io.EOF {
+		err = nil
+	}
+	return
+}
 
-		typ, params, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+func readUntilErr(r io.Reader, p []byte) (c int, err error) {
+	for len(p) > 0 {
+		var n int
+		n, err = r.Read(p)
+		p = p[n:]
+		c += n
 		if err != nil {
-			return nil, err
-		}
-
-		if typ == "multipart/byteranges" {
-			multipart := multipart.NewReader(resp.Body, params["boundary"])
-			i := 0
-			for {
-				if part, err := multipart.NextPart(); err == nil {
-					rng := ranges[i]
-					bn := rng.Number
-					blocklen := (rng.End - rng.Start) + 1
-					blox[i] = Block{Number: bn, Data: make([]byte, blocklen)}
-					io.ReadFull(part, blox[i].Data)
-					i++
-				} else {
-					if err == io.EOF {
-						break
-					}
-					return nil, err
-				}
-			}
-		} else {
-			bn := 0
-			if resp.StatusCode == http.StatusPartialContent {
-				// If we've received 206 Partial Content but no multipart parts,
-				// we received a contiguous section starting at the first requested block.
-				bn = ranges[0].Number
-			}
-			body := make([]byte, resp.ContentLength)
-			io.ReadFull(resp.Body, body)
-			blox = blox[0:0]
-			remaining := resp.ContentLength
-			ncopied := int64(0)
-			for remaining > 0 {
-				bs := int64(r.blockSize)
-				if bs > remaining {
-					bs = remaining
-				}
-
-				blk := Block{bn, make([]byte, bs)}
-				bodySlice := body[ncopied : ncopied+bs]
-				copy(blk.Data, bodySlice)
-				blox = append(blox, blk)
-
-				bn++
-				ncopied += bs
-				remaining -= bs
-			}
+			break
 		}
 	}
-	return blox, nil
+	return
+}
+
+func (hr *HTTPRanger) fillBlocksFromContiguousReader(blox []Block, r io.Reader) (c int, err error) {
+	for i := range blox {
+		block := &blox[i]
+		l := block.Length
+		data := make([]byte, l)
+
+		var n int
+		n, err = readUntilErr(r, data)
+		if n > 0 {
+			// Any data having been read dirties a block
+			block.Data = data[:n]
+			c++
+		}
+
+		if err != nil {
+			break
+		}
+	}
+
+	// EOFs bubble up as the number of blocks read being short, so we'll
+	// never raise one from here.
+	if err == io.EOF {
+		err = nil
+	}
+	return
 }
