@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 const httpMethodGet = "GET"
@@ -38,7 +39,8 @@ type HTTPRanger struct {
 
 	validator string
 	length    int64
-	blockSize int
+
+	once sync.Once
 }
 
 func statusCodeError(status int) error {
@@ -63,40 +65,46 @@ func validatorFromResponse(resp *http.Response) (string, error) {
 	return "", errors.New("no applicable validator in response")
 }
 
-// Initialize implements the Initialize function from the RangeFetcher interface.
-// It performs a HEAD request to retrieve the required information from the server.
-func (r *HTTPRanger) Initialize(bs int) error {
-	if r.Client == nil {
-		r.Client = &http.Client{}
-	}
+// init performs a HEAD request to determine whether the resource is rangeable.
+func (r *HTTPRanger) init() error {
+	var outerErr error
+	r.once.Do(func() {
+		if r.Client == nil {
+			r.Client = &http.Client{}
+		}
 
-	resp, err := r.Client.Head(r.URL.String())
-	if err != nil {
-		return err
-	}
+		resp, err := r.Client.Head(r.URL.String())
+		if err != nil {
+			outerErr = err
+			return
+		}
 
-	if !statusIsAcceptable(resp.StatusCode) {
-		return statusCodeError(resp.StatusCode)
-	}
+		if !statusIsAcceptable(resp.StatusCode) {
+			outerErr = statusCodeError(resp.StatusCode)
+			return
+		}
 
-	if !strings.Contains(resp.Header.Get(httpHeaderAcceptRanges), "bytes") {
-		return errors.New(r.URL.String() + " does not support byte-ranged requests.")
-	}
+		if !strings.Contains(resp.Header.Get(httpHeaderAcceptRanges), "bytes") {
+			outerErr = errors.New(r.URL.String() + " does not support byte-ranged requests.")
+			return
+		}
 
-	validator, err := validatorFromResponse(resp)
-	if err != nil {
-		return errors.New(r.URL.String() + " did not offer a strong-enough validator for subsequent requests")
-	}
+		validator, err := validatorFromResponse(resp)
+		if err != nil {
+			outerErr = errors.New(r.URL.String() + " did not offer a strong-enough validator for subsequent requests")
+			return
+		}
 
-	r.blockSize = bs
-	r.validator = validator
-	r.length = resp.ContentLength
-	return nil
+		r.validator = validator
+		r.length = resp.ContentLength
+	})
+	return outerErr
 }
 
-// Length returns the length, in bytes, of the ranged-over file.
-func (r *HTTPRanger) Length() int64 {
-	return r.length
+// ExpectedLength returns the length, in bytes, of the ranged-over file.
+func (r *HTTPRanger) ExpectedLength() (int64, error) {
+	err := r.init()
+	return r.length, err
 }
 
 func makeByteRangeHeader(ranges []ByteRange) string {
@@ -133,6 +141,11 @@ func (r *HTTPRanger) validateResponse(resp *http.Response) error {
 func (r *HTTPRanger) FetchRanges(ranges []ByteRange) ([]Block, error) {
 	if len(ranges) == 0 {
 		return nil, nil
+	}
+
+	err := r.init()
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest(httpMethodGet, r.URL.String(), nil)

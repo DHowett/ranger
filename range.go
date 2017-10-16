@@ -9,8 +9,7 @@ package ranger
 // Initialize, called once and passed the Reader's block size, performs any necessary setup tasks for the RangeFetcher
 type RangeFetcher interface {
 	FetchRanges([]ByteRange) ([]Block, error)
-	Length() int64
-	Initialize(int) error
+	ExpectedLength() (int64, error)
 }
 
 // Block represents a block returned from a ranged read

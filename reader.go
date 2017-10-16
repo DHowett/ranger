@@ -198,12 +198,7 @@ func (r *Reader) init() (err error) {
 			r.BlockSize = DefaultBlockSize
 		}
 
-		err = r.Fetcher.Initialize(r.BlockSize)
-		if err != nil {
-			return
-		}
-
-		r.len = r.Fetcher.Length()
+		r.len, err = r.Fetcher.ExpectedLength()
 	})
 	return
 }
