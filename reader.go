@@ -53,15 +53,16 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 	r.mutex.Lock()
 
 	startBlock, nblocks := blockRange(off, l, r.BlockSize)
-	ranges := make([]BlockByteRange, nblocks)
+	blockNumbers := make([]int, nblocks)
+	ranges := make([]ByteRange, nblocks)
 	nreq := 0
 	for i := 0; i < nblocks; i++ {
 		bn := startBlock + i
 		if _, ok := r.blocks[bn]; ok {
 			continue
 		}
-		ranges[nreq] = BlockByteRange{
-			bn,
+		blockNumbers[nreq] = bn
+		ranges[nreq] = ByteRange{
 			int64(bn * r.BlockSize),
 			int64(((bn + 1) * r.BlockSize) - 1),
 		}
@@ -74,13 +75,13 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 
 	ranges = ranges[:nreq]
 
-	blox, err := r.Fetcher.FetchBlocks(ranges)
+	blox, err := r.Fetcher.FetchRanges(ranges)
 	if err != nil {
 		r.mutex.Unlock()
 		return 0, err
 	}
-	for _, v := range blox {
-		r.blocks[v.Number] = v.Data
+	for i, v := range blox {
+		r.blocks[blockNumbers[i]] = v.Data
 	}
 
 	r.mutex.Unlock()

@@ -91,7 +91,7 @@ func (r *HTTPRanger) Length() int64 {
 	return r.length
 }
 
-func makeByteRangeHeader(ranges []BlockByteRange) string {
+func makeByteRangeHeader(ranges []ByteRange) string {
 	if len(ranges) > 0 {
 		rs := make([]string, len(ranges))
 		for i, rng := range ranges {
@@ -120,8 +120,8 @@ func (r *HTTPRanger) validateResponse(resp *http.Response) error {
 	return nil
 }
 
-// FetchBlocks requests blocks from the HTTP server.
-func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
+// FetchRanges requests ranges from the HTTP server.
+func (r *HTTPRanger) FetchRanges(ranges []ByteRange) ([]Block, error) {
 	if len(ranges) == 0 {
 		return nil, nil
 	}
@@ -153,7 +153,6 @@ func (r *HTTPRanger) FetchBlocks(ranges []BlockByteRange) ([]Block, error) {
 
 	blox := make([]Block, len(ranges))
 	for i, v := range ranges {
-		blox[i].Number = v.Number
 		blox[i].Length = v.End - v.Start + 1
 	}
 

@@ -8,21 +8,19 @@ package ranger
 //
 // Initialize, called once and passed the Reader's block size, performs any necessary setup tasks for the RangeFetcher
 type RangeFetcher interface {
-	FetchBlocks([]BlockByteRange) ([]Block, error)
+	FetchRanges([]ByteRange) ([]Block, error)
 	Length() int64
 	Initialize(int) error
 }
 
-// Block is represents a block by its number and its associated data.
+// Block represents a block returned from a ranged read
 type Block struct {
-	Number int
 	Length int64
 	Data   []byte
 }
 
-// BlockByteRange represents a not-yet-fetched block and the encompassed byte range.
-type BlockByteRange struct {
-	Number     int
+// ByteRange represents a not-yet-fetched range of bytes
+type ByteRange struct {
 	Start, End int64
 }
 
