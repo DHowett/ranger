@@ -8,12 +8,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 )
 
 const httpMethodGet = "GET"
 const httpHeaderAcceptRanges = "Accept-Ranges"
+const httpHeaderContentRange = "Content-Range"
 const httpHeaderContentType = "Content-Type"
 const httpHeaderIfRange = "If-Range"
 const httpHeaderLastModified = "Last-Modified"
@@ -66,22 +68,44 @@ func validatorFromResponse(resp *http.Response) (string, error) {
 }
 
 // init performs a HEAD request to determine whether the resource is rangeable.
+// try GET request when HEAD request is forbidden
 func (r *HTTPRanger) init() error {
 	var outerErr error
 	r.once.Do(func() {
 		if r.Client == nil {
 			r.Client = &http.Client{}
 		}
-
+		var resp *http.Response
+		isHeadMethod := true
 		resp, err := r.Client.Head(r.URL.String())
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		if err != nil {
 			outerErr = err
 			return
 		}
-
+		//try GET method (e.g. s3 presigned url HEAD method return 403 forbidden)
 		if !statusIsAcceptable(resp.StatusCode) {
-			outerErr = statusCodeError(resp.StatusCode)
-			return
+			req, err := http.NewRequest(http.MethodGet, r.URL.String(), nil)
+			if err != nil {
+				outerErr = err
+				return
+			}
+			req.Header.Add("Range", "bytes=0-0")
+			resp, err = r.Client.Do(req)
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+			if err != nil {
+				outerErr = err
+				return
+			}
+			if !statusIsAcceptable(resp.StatusCode) {
+				outerErr = statusCodeError(resp.StatusCode)
+				return
+			}
+			isHeadMethod = false
 		}
 
 		if !strings.Contains(resp.Header.Get(httpHeaderAcceptRanges), "bytes") {
@@ -96,7 +120,22 @@ func (r *HTTPRanger) init() error {
 		}
 
 		r.validator = validator
-		r.length = resp.ContentLength
+		if isHeadMethod {
+			r.length = resp.ContentLength
+		} else {
+			str := resp.Header.Get(httpHeaderContentRange)
+			if strings.Contains(str, "/") {
+				length, err := strconv.ParseInt(strings.Split(str, "/")[1], 10, 64)
+				if err != nil {
+					outerErr = errors.New(r.URL.String() + "invalid response header " + httpHeaderContentRange + str)
+					return
+				}
+				r.length = length
+			} else {
+				outerErr = errors.New(r.URL.String() + "invalid response header " + httpHeaderContentRange + str)
+				return
+			}
+		}
 	})
 	return outerErr
 }
