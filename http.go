@@ -78,6 +78,9 @@ func (r *HTTPRanger) init() error {
 		var resp *http.Response
 		isHeadMethod := true
 		resp, err := r.Client.Head(r.URL.String())
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		if err != nil {
 			outerErr = err
 			return
@@ -91,6 +94,9 @@ func (r *HTTPRanger) init() error {
 			}
 			req.Header.Add("Range", "bytes=0-0")
 			resp, err = r.Client.Do(req)
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
 			if err != nil {
 				outerErr = err
 				return
