@@ -51,7 +51,8 @@ func TestReaderWithBadRangers(t *testing.T) {
 	})
 
 	subtest(t, "FailsToInitializeLate", func(t *testing.T) {
-		r := &Reader{Fetcher: &fetcherFailsToInitialize{}}
+		fetcher := fetcherFailsToInitialize{}
+		r, _ := NewReader(&fetcher)
 		_, err := r.ReadAt(nil, 10)
 		if err == nil {
 			t.Fail()
@@ -61,7 +62,8 @@ func TestReaderWithBadRangers(t *testing.T) {
 	})
 
 	subtest(t, "FailsToInitializeLate", func(t *testing.T) {
-		r := &Reader{Fetcher: &fetcherFailsToInitialize{}}
+		fetcher := fetcherFailsToInitialize{}
+		r, _ := NewReader(&fetcher)
 		_, err := r.Read(nil)
 		if err == nil {
 			t.Fail()
@@ -71,8 +73,8 @@ func TestReaderWithBadRangers(t *testing.T) {
 	})
 
 	subtest(t, "FailsToInitializeLate", func(t *testing.T) {
-		r := &Reader{Fetcher: &fetcherFailsToInitialize{}}
-		_, err := r.Length()
+		fetcher := fetcherFailsToInitialize{}
+		_, err := NewReader(&fetcher)
 		if err == nil {
 			t.Fail()
 		} else {
@@ -81,7 +83,8 @@ func TestReaderWithBadRangers(t *testing.T) {
 	})
 
 	subtest(t, "FailsToInitializeLate", func(t *testing.T) {
-		r := &Reader{Fetcher: &fetcherFailsToInitialize{}}
+		fetcher := fetcherFailsToInitialize{}
+		r, _ := NewReader(&fetcher)
 		_, err := r.Seek(0, 0)
 		if err == nil {
 			t.Fail()

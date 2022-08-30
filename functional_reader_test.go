@@ -229,9 +229,8 @@ func TestMain(m *testing.M) {
 }
 
 func newReaderBlockSize(u *url.URL, bs int) (*Reader, error) {
-	hpr := &Reader{Fetcher: &HTTPRanger{URL: u}, BlockSize: bs}
-	err := hpr.init()
-	return hpr, err
+	fetcher := HTTPRanger{URL: u}
+	return NewReader(&fetcher, bs)
 }
 
 func TestSequentialRead(t *testing.T) {
@@ -365,10 +364,7 @@ func TestZipFilePartialRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	length, err := hpr.Length()
-	if err != nil {
-		t.Fatal(err)
-	}
+	length := hpr.Length
 
 	zr, err := zip.NewReader(hpr, length)
 	if err != nil {
@@ -456,14 +452,16 @@ func TestLateFailure(t *testing.T) {
 // Initializes on first call to function (here, Length)
 func TestLateInit(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/blocks/bl1")
-	hpr := &Reader{Fetcher: &HTTPRanger{URL: url}}
-	length, err := hpr.Length()
+	fetcher:= HTTPRanger{URL: url}
+	hpr,err:= NewReader(&fetcher)
+	length:= hpr.Length
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Log("Late-Init Length:", length)
 
-	hpr2 := &Reader{Fetcher: &HTTPRanger{URL: url}}
+	fetcher2:= HTTPRanger{URL: url}
+	hpr2,err:= NewReader(&fetcher2)
 	bytes := make([]byte, 1024)
 	n, err := hpr2.ReadAt(bytes, 100)
 	if err != nil {
@@ -612,7 +610,7 @@ func ExampleReader() {
 	url, _ := url.Parse(testServer.URL + "/b.zip")
 
 	reader, _ := NewReader(&HTTPRanger{URL: url})
-	length, _ := reader.Length()
+	length := reader.Length
 	zipreader, _ := zip.NewReader(reader, length)
 
 	for i, v := range zipreader.File {
