@@ -17,12 +17,16 @@ type Reader struct {
 
 	Length   int64
 	buffSize int
+	ok       bool
 }
 
 // ReadAt reads len(p) bytes from the ranged-over source.
 // It returns the number of bytes read and the error, if any.
 // ReadAt always returns a non-nil error when n < len(b). At end of file, that error is io.EOF.
 func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
+	if !r.ok {
+		return 0, errors.New("reader is not ok")
+	}
 	if off < 0 {
 		return 0, errors.New("read before beginning of file")
 	}
@@ -30,6 +34,10 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 		return 0, errors.New("read beyond end of file")
 	}
 	r.readPoint = off
+	//the last circle
+	if r.Length-r.readPoint <= int64(r.buffSize) {
+		r.writePoint = r.readPoint
+	}
 	return r.Read(p)
 }
 
@@ -37,6 +45,9 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 // It returns the number of bytes read and the error, if any.
 // EOF is signaled by a zero count with err set to io.EOF.
 func (r *Reader) Read(p []byte) (int, error) {
+	if !r.ok {
+		return 0, errors.New("reader is not ok")
+	}
 	// all the zone is [-length,0](0,buffSize](buffSize,length]
 	distance := r.writePoint - r.readPoint
 	if r.readPoint >= r.Length {
@@ -47,13 +58,15 @@ func (r *Reader) Read(p []byte) (int, error) {
 		r.writePoint = r.readPoint
 		err := r.fillBuff()
 		if err != nil {
-			return 0, nil
+			return 0, err
 		}
+		distance = r.writePoint - r.readPoint
 	}
 	// (0,buffSize]
-	readIndex := r.readPoint % int64(r.buffSize)
-	writeIndex := r.writePoint % int64(r.buffSize)
+
 	if len(p) <= int(distance) {
+		readIndex := r.readPoint % int64(r.buffSize)
+		writeIndex := r.writePoint % int64(r.buffSize)
 		length := ringRead(p, r.buff, int(readIndex), int(writeIndex))
 		r.readPoint = r.readPoint + int64(length)
 		if r.readPoint >= r.Length {
@@ -65,6 +78,8 @@ func (r *Reader) Read(p []byte) (int, error) {
 	// len(p) > distance
 	total := 0
 	for total < len(p) {
+		readIndex := r.readPoint % int64(r.buffSize)
+		writeIndex := r.writePoint % int64(r.buffSize)
 		length := ringRead(p[total:], r.buff, int(readIndex), int(writeIndex))
 		r.readPoint = r.readPoint + int64(length)
 		total = total + length
@@ -84,14 +99,16 @@ func (r *Reader) Read(p []byte) (int, error) {
 // to the current offset, and 2 means relative to the end. It returns the new offset
 // and an error, if any.
 func (r *Reader) Seek(off int64, whence int) (int64, error) {
-
+	if !r.ok {
+		return 0, errors.New("reader is not ok")
+	}
 	switch whence {
 	case 0: // set
 		r.readPoint = off
 	case 1: // cur
 		off = r.readPoint + off
 	case 2: // end
-		off = r.readPoint + off
+		off = r.Length + off
 	}
 
 	if off > r.Length {
@@ -101,8 +118,11 @@ func (r *Reader) Seek(off int64, whence int) (int64, error) {
 	if off < 0 {
 		return 0, errors.New("seek before beginning of file")
 	}
-
 	r.readPoint = off
+	//the last circle
+	if r.Length-r.readPoint <= int64(r.buffSize) {
+		r.writePoint = r.readPoint
+	}
 	return r.readPoint, nil
 }
 
@@ -160,6 +180,9 @@ func (r *Reader) fillBuff() error {
 	if err != nil {
 		return err
 	}
+	if len(blocks) != 1 {
+		return errors.New("partial read failed")
+	}
 	value := blocks[0]
 	writeIndex := r.writePoint % int64(r.buffSize)
 	readIndex := r.readPoint % int64(r.buffSize)
@@ -192,5 +215,6 @@ func NewReader(fetcher RangeFetcher, size ...int) (*Reader, error) {
 	}
 	r.Length = length
 	r.buff = make([]byte, r.buffSize)
+	r.ok = true
 	return r, nil
 }

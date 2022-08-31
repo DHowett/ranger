@@ -619,8 +619,11 @@ func ExampleReader() {
 
 	data := make([]byte, 16)
 
-	rc, _ := zipreader.File[0].Open()
-	defer rc.Close()
+	rc, err := zipreader.File[0].Open()
+	if(err!=nil){
+		defer rc.Close()
+	}
+	
 
 	io.ReadFull(rc, data)
 
