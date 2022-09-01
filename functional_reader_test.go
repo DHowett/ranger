@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"sync"
 	"testing"
 	"time"
 )
@@ -277,7 +276,7 @@ func TestSeekRead(t *testing.T) {
 	}
 }
 
-func TestAsynchronousRead(t *testing.T) {
+func TestRead(t *testing.T) {
 	sums := []string{
 		"85fcb2d0dddc364935ca7d5117e4f86a",
 		"85ae5cab9fdc677cf2c700e31009aa39",
@@ -305,19 +304,14 @@ func TestAsynchronousRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wg := sync.WaitGroup{}
 	for i := 1; i <= 7; i++ {
 		n := int64(i)
-		wg.Add(1)
-		go func() {
-			cases[n-1].RunTest(t, hpr)
-			wg.Done()
-		}()
+		cases[n-1].RunTest(t, hpr)
 	}
-	wg.Wait()
+
 }
 
-func TestOverlappingAsynchronousRead(t *testing.T) {
+func TestOverlappingRead(t *testing.T) {
 	sums := []string{
 		"4f701cc42d5f238d8b89ac6fe65b2fbc",
 		"a649c4dbcfb1958cdc0435ac360dc720",
@@ -345,16 +339,10 @@ func TestOverlappingAsynchronousRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wg := sync.WaitGroup{}
 	for i := 1; i <= 7; i++ {
 		n := int64(i)
-		wg.Add(1)
-		go func() {
-			cases[n-1].RunTest(t, hpr)
-			wg.Done()
-		}()
+		cases[n-1].RunTest(t, hpr)
 	}
-	wg.Wait()
 }
 
 func TestZipFilePartialRead(t *testing.T) {
