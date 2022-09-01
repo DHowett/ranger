@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"sync"
 	"testing"
 	"time"
 )
@@ -229,9 +228,8 @@ func TestMain(m *testing.M) {
 }
 
 func newReaderBlockSize(u *url.URL, bs int) (*Reader, error) {
-	hpr := &Reader{Fetcher: &HTTPRanger{URL: u}, BlockSize: bs}
-	err := hpr.init()
-	return hpr, err
+	fetcher := HTTPRanger{URL: u}
+	return NewReader(&fetcher, bs)
 }
 
 func TestSequentialRead(t *testing.T) {
@@ -278,7 +276,7 @@ func TestSeekRead(t *testing.T) {
 	}
 }
 
-func TestAsynchronousRead(t *testing.T) {
+func TestRead(t *testing.T) {
 	sums := []string{
 		"85fcb2d0dddc364935ca7d5117e4f86a",
 		"85ae5cab9fdc677cf2c700e31009aa39",
@@ -306,19 +304,14 @@ func TestAsynchronousRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wg := sync.WaitGroup{}
 	for i := 1; i <= 7; i++ {
 		n := int64(i)
-		wg.Add(1)
-		go func() {
-			cases[n-1].RunTest(t, hpr)
-			wg.Done()
-		}()
+		cases[n-1].RunTest(t, hpr)
 	}
-	wg.Wait()
+
 }
 
-func TestOverlappingAsynchronousRead(t *testing.T) {
+func TestOverlappingRead(t *testing.T) {
 	sums := []string{
 		"4f701cc42d5f238d8b89ac6fe65b2fbc",
 		"a649c4dbcfb1958cdc0435ac360dc720",
@@ -346,16 +339,10 @@ func TestOverlappingAsynchronousRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wg := sync.WaitGroup{}
 	for i := 1; i <= 7; i++ {
 		n := int64(i)
-		wg.Add(1)
-		go func() {
-			cases[n-1].RunTest(t, hpr)
-			wg.Done()
-		}()
+		cases[n-1].RunTest(t, hpr)
 	}
-	wg.Wait()
 }
 
 func TestZipFilePartialRead(t *testing.T) {
@@ -365,10 +352,7 @@ func TestZipFilePartialRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	length, err := hpr.Length()
-	if err != nil {
-		t.Fatal(err)
-	}
+	length := hpr.Length
 
 	zr, err := zip.NewReader(hpr, length)
 	if err != nil {
@@ -456,14 +440,16 @@ func TestLateFailure(t *testing.T) {
 // Initializes on first call to function (here, Length)
 func TestLateInit(t *testing.T) {
 	url, _ := url.Parse(testServer.URL + "/blocks/bl1")
-	hpr := &Reader{Fetcher: &HTTPRanger{URL: url}}
-	length, err := hpr.Length()
+	fetcher:= HTTPRanger{URL: url}
+	hpr,err:= NewReader(&fetcher)
+	length:= hpr.Length
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Log("Late-Init Length:", length)
 
-	hpr2 := &Reader{Fetcher: &HTTPRanger{URL: url}}
+	fetcher2:= HTTPRanger{URL: url}
+	hpr2,err:= NewReader(&fetcher2)
 	bytes := make([]byte, 1024)
 	n, err := hpr2.ReadAt(bytes, 100)
 	if err != nil {
@@ -612,7 +598,7 @@ func ExampleReader() {
 	url, _ := url.Parse(testServer.URL + "/b.zip")
 
 	reader, _ := NewReader(&HTTPRanger{URL: url})
-	length, _ := reader.Length()
+	length := reader.Length
 	zipreader, _ := zip.NewReader(reader, length)
 
 	for i, v := range zipreader.File {
@@ -621,8 +607,11 @@ func ExampleReader() {
 
 	data := make([]byte, 16)
 
-	rc, _ := zipreader.File[0].Open()
-	defer rc.Close()
+	rc, err := zipreader.File[0].Open()
+	if(err!=nil){
+		defer rc.Close()
+	}
+	
 
 	io.ReadFull(rc, data)
 
